@@ -1,0 +1,43 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: oh-referral-app-frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"  # Changed to 3000:3000 to match standard React port
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WDS_SOCKET_PORT=3000
+      - WATCHPACK_POLLING=true
+      - PORT=3000
+    stdin_open: true
+    tty: true
+    depends_on:
+      - backend
+
+  backend:
+    build: 
+      context: ./backend
+    container_name: oh-referral-app-backend
+    ports:
+      - "5000:5000"
+    depends_on:
+      - db
+
+  db:
+    image: mysql:8.0
+    container_name: oh-referral-app-db
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=your_root_password
+      - MYSQL_DATABASE=your_database_name
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+volumes:
+  mysql_data:

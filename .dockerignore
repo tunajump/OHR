@@ -1,0 +1,11 @@
+# .dockerignore
+**/node_modules
+**/build
+.git
+**/.gitignore
+**/README.md
+**/Dockerfile*
+**/docker-compose*
+**/.env*
+**/.DS_Store
+backend/
