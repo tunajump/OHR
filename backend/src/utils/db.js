@@ -269,6 +269,8 @@ const mockPool = {
 };
 
 const delegatePool = {
+  memoryDb,
+  nextIds,
   async query(sql, params = []) {
     if (!realPool && !useMock) {
       try {
