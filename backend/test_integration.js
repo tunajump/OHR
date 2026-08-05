@@ -38,6 +38,7 @@ async function runTests() {
     console.log('Test 1: Registering Business User...');
     const regBizRes = await api.post('/register', {
       email: 'business@example.com',
+      password: 'password',
       userType: 'business'
     });
     console.log('Status:', regBizRes.status);
@@ -115,6 +116,7 @@ async function runTests() {
     console.log('\nTest 6: Registering Provider User...');
     const regProvRes = await api.post('/register', {
       email: 'provider@example.com',
+      password: 'password',
       userType: 'provider'
     });
     console.log('Status:', regProvRes.status);
@@ -200,6 +202,7 @@ async function runTests() {
     console.log('\nTest 12: Registering Manchester Provider (M1 1AE)...');
     const regMancRes = await api.post('/register', {
       email: 'manchester@example.com',
+      password: 'password',
       userType: 'provider'
     });
     const mancToken = regMancRes.data.token;
