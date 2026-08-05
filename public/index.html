@@ -17,5 +17,11 @@
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <script src="https://www.google.com/recaptcha/api.js?render=6LcNoVAqAAAAABnX_1pSnApfZ5Fp-ayndl1eZnJo"></script>
     <div id="root"></div>
+    <footer>
+      <p>&copy; <span id="copyright-year"></span> OH Referral App. All rights reserved.</p>
+      <script>
+        document.getElementById('copyright-year').textContent = new Date().getFullYear();
+      </script>
+    </footer>
   </body>
 </html>
