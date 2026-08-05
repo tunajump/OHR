@@ -32,7 +32,7 @@ services:
     image: mysql:8.0
     container_name: oh-referral-app-db
     ports:
-      - "3307:3306"
+      - "127.0.0.1:3307:3306"
     environment:
       - MYSQL_ROOT_PASSWORD=your_root_password
       - MYSQL_DATABASE=your_database_name

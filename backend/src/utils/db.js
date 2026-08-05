@@ -1,5 +1,26 @@
 const mysql = require('mysql2/promise');
 
+function getSSLConfig() {
+  if (process.env.DB_SSL === 'false') {
+    return false;
+  }
+  const ssl = {
+    rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true'
+  };
+  if (process.env.DB_SSL_CA) {
+    ssl.ca = process.env.DB_SSL_CA;
+  }
+  if (process.env.DB_SSL_CERT) {
+    ssl.cert = process.env.DB_SSL_CERT;
+  }
+  if (process.env.DB_SSL_KEY) {
+    ssl.key = process.env.DB_SSL_KEY;
+  }
+  return ssl;
+}
+
+const sslConfig = getSSLConfig();
+
 const poolConfig = {
   host: process.env.DB_HOST || 'db',
   user: process.env.DB_USER || 'root',
@@ -9,6 +30,10 @@ const poolConfig = {
   connectionLimit: 10,
   queueLimit: 0
 };
+
+if (sslConfig) {
+  poolConfig.ssl = sslConfig;
+}
 
 let realPool = null;
 let useMock = false;
@@ -294,7 +319,8 @@ const delegatePool = {
 
   async execute(sql, params = []) {
     return this.query(sql, params);
-  }
+  },
+  poolConfig
 };
 
 module.exports = delegatePool;
