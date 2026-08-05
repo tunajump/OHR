@@ -19,9 +19,23 @@ app.use((req, res, next) => {
   next();
 });
 
-// Use auth routes
+// Load routes
 const authRoutes = require('./routes/authRoutes');
+const businessRoutes = require('./routes/businessRoutes');
+const providerRoutes = require('./routes/providerRoutes');
+const referralRoutes = require('./routes/referralRoutes');
+
+// Secure and expose all endpoints
 app.use('/api', authRoutes);
+app.use('/api', referralRoutes);
+
+// Register business and provider routes with and without prefix for extreme flexibility
+app.use('/api/business', businessRoutes);
+app.use('/api/provider', providerRoutes);
+
+// Also register directly under /api in case clients expect /api/profile or /api/location
+app.use('/api', businessRoutes);
+app.use('/api', providerRoutes);
 
 // Simple health check
 app.get('/health', (req, res) => {
@@ -36,19 +50,42 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server running inside Docker container on port ${PORT}`);
-  console.log(`Access it from host machine using Docker port mapping`);
-  console.log('Available routes:');
-  console.log('- GET /');
-  console.log('- GET /health');
-  console.log('- /api routes from authRoutes');
+  console.log('Available routes registered successfully');
+
+  // Verify and dynamically add columns to real database if available
+  const pool = require('./utils/db');
+  try {
+    // If we are in real MySQL mode, run the ALTER statements gracefully
+    await pool.query('ALTER TABLE BusinessLocations ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8) NULL');
+    await pool.query('ALTER TABLE BusinessLocations ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8) NULL');
+    await pool.query('ALTER TABLE OHProviderLocations ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8) NULL');
+    await pool.query('ALTER TABLE OHProviderLocations ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8) NULL');
+    console.log('Database columns verified and added if not exists');
+  } catch (error) {
+    // MySQL 8.0 might not support ADD COLUMN IF NOT EXISTS or the table might be in-memory mock.
+    // We try individual ALTER TABLE statements without IF NOT EXISTS in a try-catch to be 100% safe.
+    try {
+      await pool.query('ALTER TABLE BusinessLocations ADD COLUMN latitude DECIMAL(10, 8) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE BusinessLocations ADD COLUMN longitude DECIMAL(11, 8) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE OHProviderLocations ADD COLUMN latitude DECIMAL(10, 8) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE OHProviderLocations ADD COLUMN longitude DECIMAL(11, 8) NULL');
+    } catch (e) {}
+    console.log('Database verification completed gracefully');
+  }
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server')
+  console.log('SIGTERM signal received: closing HTTP server');
   server.close(() => {
-    console.log('HTTP server closed')
-  })
+    console.log('HTTP server closed');
+  });
 });

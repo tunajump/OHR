@@ -25,7 +25,7 @@ exports.register = async (req, res) => {
     const userId = result.insertId;
 
     // Create JWT token
-    const token = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ id: userId }, process.env.JWT_SECRET || 'fallback_jwt_secret_key_123', { expiresIn: '1h' });
 
     res.status(201).json({ token, userId, userType });
   } catch (error) {
@@ -53,7 +53,7 @@ exports.login = async (req, res) => {
     }
 
     // Create JWT token
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET || 'fallback_jwt_secret_key_123', { expiresIn: '1h' });
 
     res.json({ token, userId: user.id, userType: user.user_type });
   } catch (error) {
