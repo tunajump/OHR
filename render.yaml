@@ -38,7 +38,7 @@ services:
     routes:
       - type: rewrite
         source: /api/*
-        destination: https://ohr-backend.onrender.com/api/*
+        destination: https://ohr-backend-ymki.onrender.com/api/*
       - type: rewrite
         source: /*
         destination: /index.html

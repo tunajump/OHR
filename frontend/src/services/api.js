@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Dynamically resolve API URL at runtime to guarantee production domain compatibility
+// Dynamically resolve API URL at runtime
 const getApiBaseUrl = () => {
   if (process.env.REACT_APP_API_URL) {
     return process.env.REACT_APP_API_URL;
@@ -19,7 +19,7 @@ const getApiBaseUrl = () => {
 
 const api = axios.create({
   baseURL: getApiBaseUrl(),
-  timeout: 15000, // 15-second safety timeout so requests never spin forever
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -42,7 +42,6 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Token is invalid or expired
       if (localStorage.getItem('token')) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
