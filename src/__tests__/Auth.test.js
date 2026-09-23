@@ -9,9 +9,28 @@ jest.mock('@simplewebauthn/browser', () => ({
   browserSupportsWebAuthnAutofill: jest.fn().mockResolvedValue(true)
 }));
 
+jest.mock('../services/passkeyService', () => ({
+  registerPasswordlessUser: jest.fn().mockResolvedValue({
+    verified: true,
+    token: 'mock_jwt_token',
+    userId: 1,
+    userType: 'business',
+    message: 'Account created with Passkey!'
+  }),
+  loginWithPasskey: jest.fn().mockResolvedValue({
+    verified: true,
+    token: 'mock_jwt_token',
+    userType: 'business'
+  }),
+  isPasskeySupported: jest.fn().mockReturnValue(true),
+  getPasskeys: jest.fn().mockResolvedValue([]),
+  registerPasskey: jest.fn().mockResolvedValue({ verified: true })
+}));
+
 import Login from '../components/auth/Login';
 import Register from '../components/auth/Register';
 import AuthContext from '../context/AuthContext';
+import passkeyService from '../services/passkeyService';
 
 describe('Auth Views - Stage Tests', () => {
   // STAGE 1: Login Form Inputs & Submission
@@ -42,8 +61,48 @@ describe('Auth Views - Stage Tests', () => {
     });
   });
 
-  // STAGE 2: Register Form & Post-Registration Guidance
-  test('Stage 2: Register form renders role selectors and triggers registration successfully', async () => {
+  // STAGE 2: Passwordless Passkey Registration
+  test('Stage 2: Register form renders 1-Click Passkey onboarding by default', async () => {
+    render(
+      <BrowserRouter>
+        <AuthContext.Provider value={{ register: jest.fn() }}>
+          <Register />
+        </AuthContext.Provider>
+      </BrowserRouter>
+    );
+
+    expect(screen.getByText('Business Requester')).toBeInTheDocument();
+    expect(screen.getByText('OH Provider')).toBeInTheDocument();
+    expect(screen.getByText('100% Passwordless Security')).toBeInTheDocument();
+
+    const emailInput = screen.getByPlaceholderText('contact@company.co.uk');
+    const phoneInput = screen.getByPlaceholderText('020 7946 0912');
+    const nameInput = screen.getByPlaceholderText('Jane Smith');
+    const orgInput = screen.getByPlaceholderText('Acme Logistics Ltd');
+    const submitBtn = screen.getByRole('button', { name: /register with passkey/i });
+
+    fireEvent.change(orgInput, { target: { value: 'Acme Test Corp' } });
+    fireEvent.change(nameInput, { target: { value: 'Alice Admin' } });
+    fireEvent.change(emailInput, { target: { value: 'alice@acme.co.uk' } });
+    fireEvent.change(phoneInput, { target: { value: '020 7946 0912' } });
+
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(passkeyService.registerPasswordlessUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'alice@acme.co.uk',
+          name: 'Alice Admin',
+          organizationName: 'Acme Test Corp',
+          phone: '020 7946 0912',
+          userType: 'business'
+        })
+      );
+    });
+  });
+
+  // STAGE 3: Password Fallback Registration Mode
+  test('Stage 3: Register form allows switching to standard password signup', async () => {
     const mockRegister = jest.fn().mockResolvedValue({ success: true, data: { userId: 1 } });
 
     render(
@@ -54,8 +113,9 @@ describe('Auth Views - Stage Tests', () => {
       </BrowserRouter>
     );
 
-    expect(screen.getByText('Business Requester')).toBeInTheDocument();
-    expect(screen.getByText('OH Provider')).toBeInTheDocument();
+    // Switch to Password tab
+    const passwordTab = screen.getByRole('button', { name: /^password$/i });
+    fireEvent.click(passwordTab);
 
     const emailInput = screen.getByPlaceholderText('contact@company.co.uk');
     const phoneInput = screen.getByPlaceholderText('020 7946 0912');

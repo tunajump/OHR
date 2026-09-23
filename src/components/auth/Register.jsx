@@ -10,13 +10,20 @@ import {
   User, 
   Phone, 
   AlertCircle, 
-  ArrowRight
+  ArrowRight,
+  Fingerprint,
+  ShieldCheck,
+  Key
 } from 'lucide-react';
+import { registerPasswordlessUser, isPasskeySupported } from '../../services/passkeyService';
 
 const Register = () => {
   const [searchParams] = useSearchParams();
   const initialType = searchParams.get('type') === 'provider' ? 'provider' : 'business';
   const [userType, setUserType] = useState(initialType);
+  const [authMethod, setAuthMethod] = useState('passkey'); // 'passkey' (default) or 'password'
+
+  const passkeySupported = isPasskeySupported();
 
   useEffect(() => {
     const paramType = searchParams.get('type');
@@ -24,6 +31,7 @@ const Register = () => {
       setUserType(paramType);
     }
   }, [searchParams]);
+
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -35,7 +43,7 @@ const Register = () => {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const { register } = useAuth();
+  const { register, setAuthSession } = useAuth();
   const navigate = useNavigate();
 
   const handleChange = (e) => {
@@ -76,6 +84,42 @@ const Register = () => {
       return;
     }
 
+    // PASSKEY (BIOMETRIC) SIGNUP
+    if (authMethod === 'passkey' && passkeySupported) {
+      setSubmitting(true);
+      try {
+        const result = await registerPasswordlessUser({
+          email: trimmedEmail,
+          userType,
+          name: trimmedName,
+          organizationName: trimmedOrg,
+          phone: trimmedPhone
+        });
+
+        if (result.verified && result.token) {
+          const userData = {
+            id: result.userId,
+            email: result.email,
+            userType: result.userType
+          };
+          if (setAuthSession) {
+            setAuthSession(result.token, userData);
+          }
+          const targetDashboard = result.userType === 'provider' ? '/provider/dashboard' : '/business/dashboard';
+          navigate(targetDashboard, { replace: true });
+        } else {
+          setError(result.message || 'Passkey registration could not be verified.');
+        }
+      } catch (err) {
+        console.error('Passwordless registration failed:', err);
+        setError(err.message || 'Passkey registration cancelled. You can choose "Password" below to register normally.');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // STANDARD PASSWORD SIGNUP
     if (!formData.password) {
       setError('Please enter a password.');
       return;
@@ -103,7 +147,6 @@ const Register = () => {
     setSubmitting(false);
 
     if (result.success) {
-      // Automatically redirect to login screen with success message
       navigate('/login', {
         state: {
           registeredEmail: trimmedEmail,
@@ -118,7 +161,7 @@ const Register = () => {
 
   return (
     <div className="flex-1 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-xl w-full space-y-8 bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100">
+      <div className="max-w-xl w-full space-y-7 bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100">
         {/* Header */}
         <div className="text-center">
           <div className="mx-auto w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 mb-4 shadow-inner">
@@ -128,7 +171,7 @@ const Register = () => {
             Create your OHR Account
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Select your account type to get started
+            Fast, secure onboarding for employers and OH providers
           </p>
         </div>
 
@@ -170,6 +213,34 @@ const Register = () => {
               <div className="font-semibold text-sm">OH Provider</div>
               <div className="text-xs text-slate-500 mt-0.5">Deliver health surveillance & referrals</div>
             </div>
+          </button>
+        </div>
+
+        {/* Security / Auth Method Toggle */}
+        <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-200 flex items-center gap-1 text-xs">
+          <button
+            type="button"
+            onClick={() => setAuthMethod('passkey')}
+            className={`flex-1 py-2 px-3 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-all ${
+              authMethod === 'passkey'
+                ? 'bg-white text-blue-700 shadow-xs border border-blue-200/60'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Fingerprint className="w-4 h-4 text-blue-600" />
+            <span>Passkey / Biometrics (Passwordless)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAuthMethod('password')}
+            className={`flex-1 py-2 px-3 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition-all ${
+              authMethod === 'password'
+                ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Key className="w-4 h-4 text-slate-500" />
+            <span>Password</span>
           </button>
         </div>
 
@@ -230,7 +301,7 @@ const Register = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="reg-email" className="block text-sm font-medium text-slate-700 mb-1">
-                Email Address <span className="text-red-500">*</span>
+                Email Address
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
@@ -252,7 +323,7 @@ const Register = () => {
 
             <div>
               <label htmlFor="reg-phone" className="block text-sm font-medium text-slate-700 mb-1">
-                Telephone Number <span className="text-red-500">*</span>
+                Telephone (Direct Dial)
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
@@ -262,6 +333,7 @@ const Register = () => {
                   id="reg-phone"
                   name="phone"
                   type="tel"
+                  autoComplete="tel"
                   required
                   value={formData.phone}
                   onChange={handleChange}
@@ -272,63 +344,81 @@ const Register = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="reg-pass" className="block text-sm font-medium text-slate-700 mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  id="reg-pass"
-                  name="password"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  value={formData.password}
-                  onChange={handleChange}
-                  placeholder="••••••••"
-                  className="input-field input-with-icon-left"
-                />
+          {/* Passkey Mode Info vs Password Inputs */}
+          {authMethod === 'passkey' ? (
+            <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-xl space-y-1.5 text-xs text-blue-900">
+              <div className="font-semibold flex items-center gap-1.5 text-blue-950">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>100% Passwordless Security</span>
               </div>
+              <p className="text-slate-600 leading-relaxed">
+                When you click continue, your device will prompt you to verify with Touch ID, Face ID, or Windows Hello. No passwords to remember or reset.
+              </p>
             </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+              <div>
+                <label htmlFor="reg-password" className="block text-sm font-medium text-slate-700 mb-1">
+                  Password
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="reg-password"
+                    name="password"
+                    type="password"
+                    autoComplete="new-password"
+                    required={authMethod === 'password'}
+                    value={formData.password}
+                    onChange={handleChange}
+                    placeholder="••••••••"
+                    className="input-field input-with-icon-left"
+                  />
+                </div>
+              </div>
 
-            <div>
-              <label htmlFor="reg-pass-confirm" className="block text-sm font-medium text-slate-700 mb-1">
-                Confirm Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
+              <div>
+                <label htmlFor="reg-confirm-password" className="block text-sm font-medium text-slate-700 mb-1">
+                  Confirm Password
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <input
+                    id="reg-confirm-password"
+                    name="confirmPassword"
+                    type="password"
+                    autoComplete="new-password"
+                    required={authMethod === 'password'}
+                    value={formData.confirmPassword}
+                    onChange={handleChange}
+                    placeholder="••••••••"
+                    className="input-field input-with-icon-left"
+                  />
                 </div>
-                <input
-                  id="reg-pass-confirm"
-                  name="confirmPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  placeholder="••••••••"
-                  className="input-field input-with-icon-left"
-                />
               </div>
             </div>
-          </div>
+          )}
 
           <div className="pt-2">
             <button
-              id="register-submit-btn"
               type="submit"
               disabled={submitting}
-              className="w-full btn-primary py-3 text-base flex items-center justify-center gap-2"
+              className={`w-full py-3 px-4 rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                authMethod === 'passkey'
+                  ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:to-indigo-800 text-white'
+                  : 'btn-primary'
+              }`}
             >
               {submitting ? (
+                <span>Setting up account...</span>
+              ) : authMethod === 'passkey' ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Creating Account...</span>
+                  <Fingerprint className="w-5 h-5" />
+                  <span>Register with Passkey / Biometrics</span>
                 </>
               ) : (
                 <>
@@ -340,12 +430,14 @@ const Register = () => {
           </div>
         </form>
 
-        {/* Existing User Login Link */}
-        <div className="text-center text-sm text-slate-600 border-t border-slate-100 pt-4">
-          Already registered?{' '}
-          <Link to="/login" className="font-semibold text-blue-600 hover:text-blue-500 underline">
-            Sign in here
-          </Link>
+        {/* Footer */}
+        <div className="text-center pt-2 border-t border-slate-100">
+          <p className="text-sm text-slate-600">
+            Already have an account?{' '}
+            <Link to="/login" className="font-semibold text-blue-600 hover:text-blue-700 hover:underline">
+              Sign in here
+            </Link>
+          </p>
         </div>
       </div>
     </div>

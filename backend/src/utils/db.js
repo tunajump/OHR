@@ -141,6 +141,17 @@ const mockPool = {
       }
 
       // 2. INSERT INTO Users
+      
+      // UPDATE Users
+      if (normalizedSql.startsWith('update users set user_type =')) {
+        const [user_type, id] = params;
+        const user = memoryDb.Users.find(u => String(u.id) === String(id));
+        if (user) {
+          user.user_type = user_type;
+        }
+        return [{ affectedRows: user ? 1 : 0 }];
+      }
+
       if (normalizedSql.startsWith('insert into users')) {
         const [email, password, user_type] = params;
         const id = nextIds.Users++;

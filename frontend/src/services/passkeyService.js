@@ -5,6 +5,30 @@ export const isPasskeySupported = () => {
   return typeof window !== 'undefined' && browserSupportsWebAuthn();
 };
 
+export const registerPasswordlessUser = async (userData) => {
+  if (!isPasskeySupported()) {
+    throw new Error('Passkeys & biometric security are not supported on this browser/device.');
+  }
+
+  // 1. Request passwordless registration challenge from backend
+  const optionsRes = await api.post('/auth/passkey/register-passwordless-options', {
+    email: userData.email,
+    name: userData.name
+  });
+  const options = optionsRes.data;
+
+  // 2. Prompt browser / OS biometric authenticator
+  const registrationResponse = await startRegistration({ optionsJSON: options });
+
+  // 3. Verify on backend and create account
+  const verifyRes = await api.post('/auth/passkey/register-passwordless-verify', {
+    ...userData,
+    ...registrationResponse
+  });
+
+  return verifyRes.data;
+};
+
 export const registerPasskey = async (deviceName = 'My Device (Face ID / Fingerprint)') => {
   if (!isPasskeySupported()) {
     throw new Error('Passkeys & biometric security are not supported on this browser/device.');

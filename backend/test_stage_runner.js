@@ -591,7 +591,77 @@ async function runStages() {
     assert(userPasskeysList.status === 200, 'User can retrieve registered passkeys list (200 OK)');
     assert(Array.isArray(userPasskeysList.data), 'Passkeys list returns an array of credentials');
 
-    console.log('\n====================================================');
+    
+    // =========================================================================
+    // STAGE 7: Direct 1-Click Passwordless Registration & Master Super-User
+    // =========================================================================
+    console.log('\n----------------------------------------------------');
+    console.log('STAGE 7: Direct Passwordless Registration & Master Super-User');
+    console.log('----------------------------------------------------');
+
+    // 7.1 Auto-seed master super-user if not already present
+    const bcrypt = require('bcryptjs');
+    const pool = require('./src/utils/db');
+    const masterAdminEmail = 'admin@ohreferral.co.uk';
+    const masterAdminPass = 'AdminOHR2026!Secure';
+    
+    const [existingMaster] = await pool.query('SELECT id, email, user_type FROM Users WHERE email = ?', [masterAdminEmail]);
+    if (!existingMaster || existingMaster.length === 0) {
+      const hash = await bcrypt.hash(masterAdminPass, 10);
+      await pool.query('INSERT INTO Users (email, password, user_type) VALUES (?, ?, ?)', [masterAdminEmail, hash, 'admin']);
+    }
+
+    // 7.2 Login as Master Admin Super-User
+    const masterLoginRes = await api.post('/login', {
+      email: masterAdminEmail,
+      password: masterAdminPass,
+    });
+    assert(masterLoginRes.status === 200, 'Master Super-User admin@ohreferral.co.uk logs in successfully');
+    assert(masterLoginRes.data.userType === 'admin', 'Master account correctly recognized as userType "admin"');
+    const masterToken = masterLoginRes.data.token;
+
+    // 7.3 Master Admin inspects full database tables
+    const masterDbRes = await api.get('/database/overview', { headers: { 'x-auth-token': masterToken } });
+    assert(masterDbRes.status === 200, 'Master Super-User accesses /api/database/overview (200 OK)');
+    assert(masterDbRes.data.tables.some(t => t.name === 'UserPasskeys'), 'Overview includes UserPasskeys table schema');
+
+    // 7.4 Request Passwordless Registration Options (New Business User)
+    const pwlessUser = {
+      email: `pwless_biz_${Date.now()}@biometrics-inc.co.uk`,
+      userType: 'business',
+      organizationName: 'Biometrics Systems UK Ltd',
+      name: 'Alice Cooper',
+      phone: '020 7946 0888'
+    };
+    const pwlessOptRes = await api.post('/auth/passkey/register-passwordless-options', pwlessUser);
+    assert(pwlessOptRes.status === 200, '1-Click Passwordless Registration options generated with 200 OK');
+    assert(pwlessOptRes.data && pwlessOptRes.data.challenge, 'Passwordless options return WebAuthn cryptographic challenge');
+    assert(pwlessOptRes.data.user && pwlessOptRes.data.user.name === pwlessUser.email, 'Options user identifier matches signup email');
+    assert(pwlessOptRes.data.authenticatorSelection && pwlessOptRes.data.authenticatorSelection.residentKey === 'preferred', 'Resident key configured for biometric passkey storage');
+
+    // 7.5 Passwordless Registration Options with invalid email format is rejected
+    const invalidPwlessEmail = await api.post('/auth/passkey/register-passwordless-options', {
+      ...pwlessUser,
+      email: 'not-a-valid-email'
+    });
+    assert(invalidPwlessEmail.status === 400, 'Passwordless registration options with invalid email rejected with 400');
+
+    // 7.6 Passwordless Registration Options with invalid phone is rejected
+    const invalidPwlessPhone = await api.post('/auth/passkey/register-passwordless-options', {
+      ...pwlessUser,
+      email: `valid_phone_${Date.now()}@example.co.uk`,
+      phone: '123'
+    });
+    assert(invalidPwlessPhone.status === 400, 'Passwordless registration options with invalid telephone rejected with 400');
+
+    // 7.7 Passwordless Registration Options with duplicate email is rejected
+    const dupPwlessEmail = await api.post('/auth/passkey/register-passwordless-options', {
+      ...pwlessUser,
+      email: masterAdminEmail
+    });
+    assert(dupPwlessEmail.status === 400, 'Passwordless registration options for existing account rejected with 400');
+
+console.log('\n====================================================');
     console.log('  ALL STAGES PASSED: Full OHR Test Suite 100% SUCCESS!  ');
     console.log('====================================================\n');
   } catch (error) {

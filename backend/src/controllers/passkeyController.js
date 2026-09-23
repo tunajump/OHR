@@ -5,9 +5,11 @@ const {
   verifyAuthenticationResponse
 } = require('@simplewebauthn/server');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const pool = require('../utils/db');
 
-// In-memory challenge store (keyed by userId or challenge string)
+// In-memory challenge store (keyed by userId, email or challenge string)
 const challenges = new Map();
 
 function getRPInfo(req) {
@@ -33,7 +35,7 @@ function getRPInfo(req) {
   return { rpID, origin, rpName: 'OH Referral' };
 }
 
-// 1. Generate Registration Options (Logged in user registering a new Passkey)
+// 1. Generate Registration Options (Logged in user registering an additional Passkey)
 exports.getRegistrationOptions = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -75,7 +77,7 @@ exports.getRegistrationOptions = async (req, res) => {
   }
 };
 
-// 2. Verify Registration Response & Save Passkey
+// 2. Verify Registration Response (Logged in user)
 exports.verifyRegistration = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -122,7 +124,161 @@ exports.verifyRegistration = async (req, res) => {
   }
 };
 
-// 3. Generate Authentication Options (1-Click Login Challenge)
+// 3. Passwordless Registration Options (Public endpoint for brand new user signup)
+exports.getPasswordlessRegistrationOptions = async (req, res) => {
+  try {
+    const { email, name, phone } = req.body || {};
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+      return res.status(400).json({ message: 'A valid email address is required.' });
+    }
+    if (phone && phone.replace(/[^0-9]/g, '').length < 10) {
+      return res.status(400).json({ message: 'A valid telephone number is required (min 10 digits).' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Check if user already exists
+    const [existingUsers] = await pool.query('SELECT id FROM Users WHERE email = ?', [cleanEmail]);
+    if (existingUsers && existingUsers.length > 0) {
+      return res.status(400).json({ message: 'An account with this email address already exists. Please sign in.' });
+    }
+
+    const { rpID, rpName } = getRPInfo(req);
+    const tempUserId = crypto.randomBytes(16);
+
+    const options = await generateRegistrationOptions({
+      rpName,
+      rpID,
+      userID: tempUserId,
+      userName: cleanEmail,
+      userDisplayName: name || cleanEmail,
+      attestationType: 'none',
+      authenticatorSelection: {
+        residentKey: 'preferred',
+        userVerification: 'preferred'
+      }
+    });
+
+    challenges.set('reg_pwless_' + cleanEmail, {
+      challenge: options.challenge,
+      createdAt: Date.now()
+    });
+
+    return res.json(options);
+  } catch (error) {
+    console.error('Passkey getPasswordlessRegistrationOptions error:', error);
+    return res.status(500).json({ message: 'Failed to generate passwordless registration challenge', error: error.message });
+  }
+};
+
+// 4. Passwordless Registration Verify & Account Creation
+exports.verifyPasswordlessRegistration = async (req, res) => {
+  try {
+    const {
+      email,
+      userType,
+      name,
+      organizationName,
+      phone,
+      deviceName,
+      ...registrationResponse
+    } = req.body;
+
+    if (!email || !userType) {
+      return res.status(400).json({ message: 'Email and account type are required.' });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Validate phone number
+    if (!phone || phone.replace(/[^0-9]/g, '').length < 10) {
+      return res.status(400).json({ message: 'A valid telephone number is required (min 10 digits).' });
+    }
+
+    // Check if user already exists
+    const [existingUsers] = await pool.query('SELECT id FROM Users WHERE email = ?', [cleanEmail]);
+    if (existingUsers && existingUsers.length > 0) {
+      return res.status(400).json({ message: 'An account with this email already exists.' });
+    }
+
+    const challengeRecord = challenges.get('reg_pwless_' + cleanEmail);
+    if (!challengeRecord || !challengeRecord.challenge) {
+      return res.status(400).json({ message: 'Registration session expired or invalid. Please try again.' });
+    }
+
+    const { rpID, origin } = getRPInfo(req);
+
+    const verification = await verifyRegistrationResponse({
+      response: registrationResponse,
+      expectedChallenge: challengeRecord.challenge,
+      expectedOrigin: [origin, 'https://ohreferral.co.uk', 'https://www.ohreferral.co.uk', 'http://localhost:3000'],
+      expectedRPID: [rpID, 'ohreferral.co.uk', 'localhost']
+    });
+
+    if (verification.verified && verification.registrationInfo) {
+      const { credentialID, credentialPublicKey, counter } = verification.registrationInfo;
+      const credIdBase64 = Buffer.from(credentialID).toString('base64url');
+      const publicKeyBase64 = Buffer.from(credentialPublicKey).toString('base64url');
+      const transports = registrationResponse.response?.transports ? registrationResponse.response.transports.join(',') : 'internal';
+      const label = deviceName || (/iPhone|iPad|Mac/.test(req.get('user-agent') || '') ? 'Apple Device (Face/Touch ID)' : /Windows/.test(req.get('user-agent') || '') ? 'Windows Hello' : 'Biometric Security Key');
+
+      // Generate a secure random fallback password hash
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+      // 1. Create User
+      const [insertUserRes] = await pool.query(
+        'INSERT INTO Users (email, password, user_type) VALUES (?, ?, ?)',
+        [cleanEmail, hashedPassword, userType]
+      );
+      const userId = insertUserRes.insertId;
+
+      // 2. Create Role Profile
+      if (userType === 'business') {
+        await pool.query(
+          'INSERT INTO Businesses (user_id, company_name, contact_person, phone) VALUES (?, ?, ?, ?)',
+          [userId, organizationName || name || 'My Business Ltd', name || 'Contact Person', phone || '']
+        );
+      } else if (userType === 'provider') {
+        await pool.query(
+          'INSERT INTO OHProviders (user_id, company_name, contact_person, phone, is_subscribed) VALUES (?, ?, ?, ?, ?)',
+          [userId, organizationName || name || 'My OH Clinic Ltd', name || 'Clinician', phone || '', true]
+        );
+      }
+
+      // 3. Store Passkey
+      await pool.query(
+        'INSERT INTO UserPasskeys (user_id, credential_id, public_key, counter, transports, device_name) VALUES (?, ?, ?, ?, ?, ?)',
+        [userId, credIdBase64, publicKeyBase64, counter, transports, label]
+      );
+
+      challenges.delete('reg_pwless_' + cleanEmail);
+
+      // 4. Issue JWT Token
+      const token = jwt.sign(
+        { id: userId, user_type: userType },
+        process.env.JWT_SECRET || 'fallback_jwt_secret_key_123',
+        { expiresIn: '7d' }
+      );
+
+      return res.status(201).json({
+        verified: true,
+        token,
+        userId,
+        userType,
+        email: cleanEmail,
+        message: 'Account created with Passkey! You are now logged in.'
+      });
+    } else {
+      return res.status(400).json({ verified: false, message: 'Passkey verification failed.' });
+    }
+  } catch (error) {
+    console.error('Passkey verifyPasswordlessRegistration error:', error);
+    return res.status(500).json({ message: 'Failed to complete passwordless registration', error: error.message });
+  }
+};
+
+// 5. Generate Authentication Options (1-Click Login Challenge)
 exports.getAuthenticationOptions = async (req, res) => {
   try {
     const { email } = req.body || {};
@@ -161,7 +317,7 @@ exports.getAuthenticationOptions = async (req, res) => {
   }
 };
 
-// 4. Verify Authentication & Log User In
+// 6. Verify Authentication & Log User In
 exports.verifyAuthentication = async (req, res) => {
   try {
     const authResponse = req.body;
@@ -244,7 +400,7 @@ exports.verifyAuthentication = async (req, res) => {
   }
 };
 
-// 5. List Passkeys for Current User
+// 7. List Passkeys for Current User
 exports.listUserPasskeys = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -267,7 +423,7 @@ exports.listUserPasskeys = async (req, res) => {
   }
 };
 
-// 6. Delete a Passkey
+// 8. Delete a Passkey
 exports.deleteUserPasskey = async (req, res) => {
   try {
     const userId = req.user.id;
