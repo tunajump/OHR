@@ -1,7 +1,10 @@
-name: CI/CD Automated Test & Deployment
+name: CI/CD Automated Test & Verification
 
 on:
   push:
+    branches:
+      - main
+  pull_request:
     branches:
       - main
 
@@ -18,23 +21,26 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: 'npm'
+
+      - name: Install Root Dependencies
+        run: npm install --legacy-peer-deps
 
       - name: Install Frontend Dependencies
-        run: cd frontend && (npm ci || npm install)
+        run: |
+          cd frontend
+          npm install --legacy-peer-deps
 
       - name: Install Backend Dependencies
-        run: cd backend && (npm ci || npm install)
+        run: |
+          cd backend
+          npm install --legacy-peer-deps
 
-      - name: Run Full Frontend & Backend Test Suite
-        run: npm run test:all
+      - name: Run Frontend Jest Test Suite
+        run: |
+          cd frontend
+          npm test -- --watchAll=false --ci
 
-  deploy-to-production:
-    name: Deploy to Production Server
-    needs: test-and-verify
-    if: false
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - name: Run Backend Stage Test Suite (Stages 1-7)
+        run: |
+          cd backend
+          node test_stage_runner.js
