@@ -20,10 +20,13 @@ jobs:
           node-version: 18
           cache: 'npm'
 
-      - name: Install Root Dependencies
-        run: npm ci || npm install
+      - name: Install Frontend Dependencies
+        run: cd frontend && (npm ci || npm install)
 
-      - name: Run Test Suite
+      - name: Install Backend Dependencies
+        run: cd backend && (npm ci || npm install)
+
+      - name: Run Full Frontend & Backend Test Suite
         run: npm run test:all
 
   deploy-to-production:
