@@ -36,7 +36,6 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (email, password) => {
-    setIsLoading(true);
     try {
       const response = await api.post('/login', { email, password });
       const { token: receivedToken, userId, userType } = response.data;
@@ -57,8 +56,6 @@ export const AuthProvider = ({ children }) => {
         error.response?.data?.msg ||
         'Login failed. Please check your credentials.';
       return { success: false, error: message };
-    } finally {
-      setIsLoading(false);
     }
   };
 

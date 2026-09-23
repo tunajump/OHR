@@ -74,7 +74,7 @@ try {
       allowNull: false
     },
     userType: {
-      type: DataTypes.ENUM('provider', 'business'),
+      type: DataTypes.ENUM('provider', 'business', 'admin'),
       allowNull: false,
       field: 'user_type'
     },

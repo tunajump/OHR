@@ -58,6 +58,10 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server running inside Docker container on port ${PORT}`);
   console.log('Available routes registered successfully');
+  const pool = require('./utils/db');
+  try {
+    await pool.query("ALTER TABLE Users MODIFY COLUMN user_type ENUM('business', 'provider', 'admin') NOT NULL");
+  } catch (e) {}
 
   // Verify and dynamically add columns to real database if available
   const pool = require('./utils/db');
@@ -105,19 +109,16 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     const adminEmail = (process.env.ADMIN_EMAIL || 'admin@ohreferral.co.uk').trim().toLowerCase();
     const adminPassword = process.env.ADMIN_PASSWORD || 'AdminOHR2026!Secure';
     const [existingAdmin] = await pool.query('SELECT id, email, user_type FROM Users WHERE email = ?', [adminEmail]);
+    const hashedPass = await bcrypt.hash(adminPassword, 10);
     if (!existingAdmin || existingAdmin.length === 0) {
-      const hashedPass = await bcrypt.hash(adminPassword, 10);
       const [newAdminRes] = await pool.query(
         'INSERT INTO Users (email, password, user_type) VALUES (?, ?, ?)',
         [adminEmail, hashedPass, 'admin']
       );
       console.log(`[SUPER-USER] Initialized master admin account: ${adminEmail} (ID: ${newAdminRes?.insertId})`);
     } else {
-      if (existingAdmin[0].user_type !== 'admin' && existingAdmin[0].userType !== 'admin') {
-        await pool.query('UPDATE Users SET user_type = ? WHERE id = ?', ['admin', existingAdmin[0].id]);
-        console.log(`[SUPER-USER] Elevated existing account ${adminEmail} to admin`);
-      }
-      console.log(`[SUPER-USER] Admin account active and ready: ${adminEmail}`);
+      await pool.query('UPDATE Users SET password = ?, user_type = ? WHERE id = ?', [hashedPass, 'admin', existingAdmin[0].id]);
+      console.log(`[SUPER-USER] Master admin password and role verified active: ${adminEmail}`);
     }
   } catch (adminErr) {
     console.warn('[SUPER-USER] Notice during admin initialization:', adminErr.message);

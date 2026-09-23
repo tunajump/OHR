@@ -69,9 +69,14 @@ const mockPool = {
 
     try {
       // 1. SELECT * FROM Users WHERE email = ?
-      if (normalizedSql.includes('select') && normalizedSql.includes('from users where email =')) {
-        const email = params[0];
-        const results = memoryDb.Users.filter(u => u.email === email);
+      // 1. SELECT * FROM Users WHERE email = ? (case-insensitive)
+      if (normalizedSql.includes('select') && normalizedSql.includes('from users where') && (normalizedSql.includes('email =') || normalizedSql.includes('email) ='))) {
+        const email = String(params[0]).trim().toLowerCase();
+        const results = memoryDb.Users.filter(u => String(u.email).trim().toLowerCase() === email).map(u => ({
+          ...u,
+          userType: u.user_type || u.userType,
+          user_type: u.user_type || u.userType
+        }));
         return [results];
       }
 
@@ -143,6 +148,17 @@ const mockPool = {
       // 2. INSERT INTO Users
       
       // UPDATE Users
+      if (normalizedSql.startsWith('update users set password =') || normalizedSql.includes('update users set password =')) {
+        const [password, user_type, id] = params;
+        const user = memoryDb.Users.find(u => String(u.id) === String(id));
+        if (user) {
+          user.password = password;
+          user.user_type = user_type;
+          user.userType = user_type;
+        }
+        return [{ affectedRows: user ? 1 : 0 }];
+      }
+
       if (normalizedSql.startsWith('update users set user_type =')) {
         const [user_type, id] = params;
         const user = memoryDb.Users.find(u => String(u.id) === String(id));

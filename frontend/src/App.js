@@ -17,6 +17,7 @@ import { useAuth } from './context/AuthContext';
 
 // Helper for determining a user's home dashboard path
 const getDashboardPath = (userType) => {
+  if (userType === 'admin') return '/admin/database';
   return userType === 'provider' ? '/dashboard/provider' : '/dashboard/business';
 };
 
