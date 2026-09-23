@@ -17,17 +17,14 @@ import {
   Edit2,
   Trash2,
   Check,
-  CheckCheck,
   CheckSquare,
-  Lock,
   XCircle,
   User, 
   Mail, 
   Phone, 
   FileText,
   ArrowRight,
-  Stethoscope,
-  ShieldCheck
+  Stethoscope
 } from 'lucide-react';
 
 const AVAILABLE_SERVICES = [

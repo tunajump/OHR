@@ -15,16 +15,13 @@ import {
   Check, 
   X, 
   CreditCard, 
-  Building, 
   Building2,
   Mail, 
   Phone, 
   User, 
   Users, 
-  FileText,
   Send,
-  Lock,
-  ArrowRight
+  Lock
 } from 'lucide-react';
 
 const AVAILABLE_SERVICES = [

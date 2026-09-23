@@ -76,7 +76,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 };
 
 function App() {
-  const { isAuthenticated, user } = useAuth();
+  const { user } = useAuth();
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-slate-900">

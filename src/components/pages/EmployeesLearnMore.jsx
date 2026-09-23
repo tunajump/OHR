@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Send, CheckCircle2, AlertCircle, Mail, User, Building2 } from 'lucide-react';
+import { Send, CheckCircle2 } from 'lucide-react';
 
 const EmployeesLearnMore = () => {
   const [formData, setFormData] = useState({

@@ -10,9 +10,7 @@ import {
   User, 
   Phone, 
   AlertCircle, 
-  CheckCircle2, 
-  ArrowRight,
-  LogIn
+  ArrowRight
 } from 'lucide-react';
 
 const Register = () => {
@@ -36,7 +34,6 @@ const Register = () => {
   });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [registeredSuccess, setRegisteredSuccess] = useState(false);
 
   const { register } = useAuth();
   const navigate = useNavigate();

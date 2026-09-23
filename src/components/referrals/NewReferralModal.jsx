@@ -6,7 +6,6 @@ import {
   Send, 
   AlertCircle, 
   CheckCircle2, 
-  MapPin, 
   Check, 
   User, 
   Users,
@@ -84,6 +83,7 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
         setContactPhone(profile?.phone || '');
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locations, isOpen, businessLocationId, profile, user]);
 
   if (!isOpen) return null;

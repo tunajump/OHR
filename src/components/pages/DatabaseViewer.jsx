@@ -5,13 +5,8 @@ import {
   Table, 
   RefreshCw, 
   Search, 
-  Layers, 
   HardDrive, 
-  CheckCircle2, 
-  Key, 
-  Server, 
-  ExternalLink,
-  Code
+  Server
 } from 'lucide-react';
 
 const DatabaseViewer = () => {
@@ -19,12 +14,10 @@ const DatabaseViewer = () => {
   const [selectedTableIndex, setSelectedTableIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('tables'); // 'tables' or 'supabase'
 
   const fetchDatabaseInfo = async () => {
     setLoading(true);
-    setError('');
     try {
       const res = await api.get('/database/overview');
       setDbData(res.data);
