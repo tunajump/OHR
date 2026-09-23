@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const bcrypt = require('bcryptjs');
 
 dotenv.config();
 
@@ -56,25 +57,16 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`Server running inside Docker container on port ${PORT}`);
+  console.log(`Server running inside container on port ${PORT}`);
   console.log('Available routes registered successfully');
-  const pool = require('./utils/db');
-  try {
-    await pool.query("ALTER TABLE Users MODIFY COLUMN user_type ENUM('business', 'provider', 'admin') NOT NULL");
-  } catch (e) {}
 
-  // Verify and dynamically add columns to real database if available
   const pool = require('./utils/db');
+
+  // Verify and dynamically add columns / update enums in real database
   try {
-    // If we are in real MySQL mode, run the ALTER statements gracefully
-    await pool.query('ALTER TABLE BusinessLocations ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8) NULL');
-    await pool.query('ALTER TABLE BusinessLocations ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8) NULL');
-    await pool.query('ALTER TABLE OHProviderLocations ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8) NULL');
-    await pool.query('ALTER TABLE OHProviderLocations ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8) NULL');
-    console.log('Database columns verified and added if not exists');
-  } catch (error) {
-    // MySQL 8.0 might not support ADD COLUMN IF NOT EXISTS or the table might be in-memory mock.
-    // We try individual ALTER TABLE statements without IF NOT EXISTS in a try-catch to be 100% safe.
+    try {
+      await pool.query("ALTER TABLE Users MODIFY COLUMN user_type ENUM('business', 'provider', 'admin') NOT NULL");
+    } catch (e) {}
     try {
       await pool.query('ALTER TABLE BusinessLocations ADD COLUMN latitude DECIMAL(10, 8) NULL');
     } catch (e) {}
@@ -103,13 +95,17 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
       await pool.query('ALTER TABLE Referrals ADD COLUMN notes TEXT NULL');
     } catch (e) {}
     console.log('Database verification completed gracefully');
+  } catch (schemaErr) {
+    console.warn('Schema check notice:', schemaErr.message);
+  }
+
   // Auto-seed Super-User Admin Account
-  const bcrypt = require('bcryptjs');
   try {
     const adminEmail = (process.env.ADMIN_EMAIL || 'admin@ohreferral.co.uk').trim().toLowerCase();
     const adminPassword = process.env.ADMIN_PASSWORD || 'AdminOHR2026!Secure';
-    const [existingAdmin] = await pool.query('SELECT id, email, user_type FROM Users WHERE email = ?', [adminEmail]);
+    const [existingAdmin] = await pool.query('SELECT id, email, user_type FROM Users WHERE LOWER(email) = ?', [adminEmail]);
     const hashedPass = await bcrypt.hash(adminPassword, 10);
+
     if (!existingAdmin || existingAdmin.length === 0) {
       const [newAdminRes] = await pool.query(
         'INSERT INTO Users (email, password, user_type) VALUES (?, ?, ?)',
@@ -123,8 +119,6 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
   } catch (adminErr) {
     console.warn('[SUPER-USER] Notice during admin initialization:', adminErr.message);
   }
-
-  }
 });
 
 // Graceful shutdown
@@ -134,3 +128,5 @@ process.on('SIGTERM', () => {
     console.log('HTTP server closed');
   });
 });
+
+module.exports = server;
