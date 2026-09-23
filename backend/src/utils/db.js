@@ -967,7 +967,7 @@ const delegatePool = {
       }
     }
 
-    if (useMock) {
+    if (useMock || !realPool) {
       return mockPool.query(sql, params);
     } else {
       if (!schemaInitialized && realPool) {

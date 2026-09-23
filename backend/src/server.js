@@ -1,3 +1,8 @@
+const crypto = require('crypto');
+if (!globalThis.crypto) {
+  globalThis.crypto = crypto.webcrypto;
+}
+
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');

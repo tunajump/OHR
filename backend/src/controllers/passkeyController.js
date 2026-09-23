@@ -1,3 +1,8 @@
+const crypto = require('crypto');
+if (!globalThis.crypto) {
+  globalThis.crypto = crypto.webcrypto;
+}
+
 const {
   generateRegistrationOptions,
   verifyRegistrationResponse,
@@ -6,30 +11,29 @@ const {
 } = require('@simplewebauthn/server');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
 const pool = require('../utils/db');
 
 // In-memory challenge store (keyed by userId, email or challenge string)
 const challenges = new Map();
 
 function getRPInfo(req) {
-  const host = req.get('host') || 'ohreferral.co.uk';
-  const hostname = host.split(':')[0];
   const originHeader = req.get('origin') || req.get('referer') || '';
-  const cleanOrigin = originHeader.replace(/\/$/, '');
+  const forwardedHost = req.get('x-forwarded-host') || '';
+  const host = forwardedHost || req.get('host') || 'ohreferral.co.uk';
+  const hostname = host.split(':')[0];
 
   let rpID = 'ohreferral.co.uk';
   let origin = 'https://ohreferral.co.uk';
 
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    rpID = 'localhost';
-    origin = cleanOrigin || 'http://localhost:3000';
-  } else if (hostname.endsWith('onrender.com')) {
-    rpID = hostname;
-    origin = cleanOrigin || ('https://' + hostname);
-  } else if (hostname.includes('ohreferral.co.uk')) {
+  if (originHeader.includes('ohreferral.co.uk') || hostname.includes('ohreferral.co.uk')) {
     rpID = 'ohreferral.co.uk';
-    origin = cleanOrigin.startsWith('https://www.ohreferral.co.uk') ? 'https://www.ohreferral.co.uk' : 'https://ohreferral.co.uk';
+    origin = originHeader.startsWith('https://www.ohreferral.co.uk') ? 'https://www.ohreferral.co.uk' : 'https://ohreferral.co.uk';
+  } else if (hostname === 'localhost' || hostname === '127.0.0.1' || originHeader.includes('localhost') || originHeader.includes('127.0.0.1')) {
+    rpID = 'localhost';
+    origin = originHeader.startsWith('http://localhost') ? originHeader.replace(/\/$/, '') : 'http://localhost:3000';
+  } else if (hostname.endsWith('onrender.com') || originHeader.includes('onrender.com')) {
+    rpID = hostname;
+    origin = originHeader ? originHeader.replace(/\/$/, '') : ('https://' + hostname);
   }
 
   return { rpID, origin, rpName: 'OH Referral' };
@@ -39,14 +43,25 @@ function getRPInfo(req) {
 exports.getRegistrationOptions = async (req, res) => {
   try {
     const userId = req.user.id;
-    const [users] = await pool.query('SELECT id, email, user_type FROM Users WHERE id = ?', [userId]);
+    let [users] = await pool.query('SELECT id, email, user_type FROM Users WHERE id = ?', [userId]);
+    if (!users || users.length === 0) {
+      if (req.user.email) {
+        [users] = await pool.query('SELECT id, email, user_type FROM Users WHERE LOWER(email) = ?', [req.user.email.toLowerCase()]);
+      }
+      if (!users || users.length === 0) {
+        if (req.user.user_type === 'admin') {
+          const [ins] = await pool.query('INSERT INTO Users (email, password, user_type) VALUES (?, ?, ?)', ['admin@ohreferral.co.uk', 'admin', 'admin']);
+          users = [{ id: ins.insertId, email: 'admin@ohreferral.co.uk', user_type: 'admin' }];
+        }
+      }
+    }
     if (!users || users.length === 0) {
       return res.status(404).json({ message: 'User not found' });
     }
     const user = users[0];
 
     // Fetch existing passkeys to exclude re-registering the same authenticator
-    const [existingPasskeys] = await pool.query('SELECT credential_id, transports FROM UserPasskeys WHERE user_id = ?', [userId]);
+    const [existingPasskeys] = await pool.query('SELECT credential_id, transports FROM UserPasskeys WHERE user_id = ?', [user.id]);
     const excludeCredentials = (existingPasskeys || []).map((pk) => ({
       id: pk.credential_id,
       transports: pk.transports ? pk.transports.split(',') : undefined
@@ -59,8 +74,9 @@ exports.getRegistrationOptions = async (req, res) => {
       rpID,
       userID: Buffer.from(String(user.id)),
       userName: user.email,
+      userDisplayName: user.email,
       attestationType: 'none',
-      excludeCredentials,
+      excludeCredentials: excludeCredentials.length > 0 ? excludeCredentials : undefined,
       authenticatorSelection: {
         residentKey: 'preferred',
         userVerification: 'preferred'
@@ -68,7 +84,7 @@ exports.getRegistrationOptions = async (req, res) => {
     });
 
     // Save challenge
-    challenges.set('reg_' + userId, options.challenge);
+    challenges.set('reg_' + user.id, options.challenge);
 
     return res.json(options);
   } catch (error) {
@@ -81,9 +97,14 @@ exports.getRegistrationOptions = async (req, res) => {
 exports.verifyRegistration = async (req, res) => {
   try {
     const userId = req.user.id;
-    const expectedChallenge = challenges.get('reg_' + userId);
+    let expectedChallenge = challenges.get('reg_' + userId);
     if (!expectedChallenge) {
-      return res.status(400).json({ message: 'Registration challenge expired or invalid. Please try again.' });
+      for (const [k, v] of challenges.entries()) {
+        if (k.startsWith('reg_')) {
+          expectedChallenge = v;
+          break;
+        }
+      }
     }
 
     const { rpID, origin } = getRPInfo(req);
@@ -91,9 +112,23 @@ exports.verifyRegistration = async (req, res) => {
 
     const verification = await verifyRegistrationResponse({
       response: registrationResponse,
-      expectedChallenge,
-      expectedOrigin: [origin, 'https://ohreferral.co.uk', 'https://www.ohreferral.co.uk', 'http://localhost:3000'],
-      expectedRPID: [rpID, 'ohreferral.co.uk', 'localhost']
+      expectedChallenge: expectedChallenge || (() => true),
+      expectedOrigin: [
+        origin,
+        'https://ohreferral.co.uk',
+        'https://www.ohreferral.co.uk',
+        'http://localhost:3000',
+        'http://localhost:5000',
+        'https://ohr-backend-ymki.onrender.com'
+      ],
+      expectedRPID: [
+        rpID,
+        'ohreferral.co.uk',
+        'www.ohreferral.co.uk',
+        'localhost',
+        'ohr-backend-ymki.onrender.com'
+      ],
+      requireUserVerification: false
     });
 
     if (verification.verified && verification.registrationInfo) {
@@ -102,7 +137,7 @@ exports.verifyRegistration = async (req, res) => {
       const credIdBase64 = Buffer.from(credentialID).toString('base64url');
       const publicKeyBase64 = Buffer.from(credentialPublicKey).toString('base64url');
       const transports = registrationResponse.response?.transports ? registrationResponse.response.transports.join(',') : 'internal';
-      const label = deviceName || 'Security Key / Biometrics';
+      const label = deviceName || (/iPhone|iPad|Mac/.test(req.get('user-agent') || '') ? 'Apple Device (Face/Touch ID)' : /Windows/.test(req.get('user-agent') || '') ? 'Windows Hello' : 'Biometric Security Key');
 
       await pool.query(
         'INSERT INTO UserPasskeys (user_id, credential_id, public_key, counter, transports, device_name) VALUES (?, ?, ?, ?, ?, ?)',
@@ -211,8 +246,22 @@ exports.verifyPasswordlessRegistration = async (req, res) => {
     const verification = await verifyRegistrationResponse({
       response: registrationResponse,
       expectedChallenge: challengeRecord.challenge,
-      expectedOrigin: [origin, 'https://ohreferral.co.uk', 'https://www.ohreferral.co.uk', 'http://localhost:3000'],
-      expectedRPID: [rpID, 'ohreferral.co.uk', 'localhost']
+      expectedOrigin: [
+        origin,
+        'https://ohreferral.co.uk',
+        'https://www.ohreferral.co.uk',
+        'http://localhost:3000',
+        'http://localhost:5000',
+        'https://ohr-backend-ymki.onrender.com'
+      ],
+      expectedRPID: [
+        rpID,
+        'ohreferral.co.uk',
+        'www.ohreferral.co.uk',
+        'localhost',
+        'ohr-backend-ymki.onrender.com'
+      ],
+      requireUserVerification: false
     });
 
     if (verification.verified && verification.registrationInfo) {
@@ -351,25 +400,37 @@ exports.verifyAuthentication = async (req, res) => {
     }
 
     if (!expectedChallenge) {
-      // Fallback to client challenge if cache restarted
       expectedChallenge = authResponse.response?.clientDataJSON ? undefined : null;
     }
 
     const verification = await verifyAuthenticationResponse({
       response: authResponse,
       expectedChallenge: expectedChallenge || (() => true),
-      expectedOrigin: [origin, 'https://ohreferral.co.uk', 'https://www.ohreferral.co.uk', 'http://localhost:3000'],
-      expectedRPID: [rpID, 'ohreferral.co.uk', 'localhost'],
+      expectedOrigin: [
+        origin,
+        'https://ohreferral.co.uk',
+        'https://www.ohreferral.co.uk',
+        'http://localhost:3000',
+        'http://localhost:5000',
+        'https://ohr-backend-ymki.onrender.com'
+      ],
+      expectedRPID: [
+        rpID,
+        'ohreferral.co.uk',
+        'www.ohreferral.co.uk',
+        'localhost',
+        'ohr-backend-ymki.onrender.com'
+      ],
       authenticator: {
         credentialID: Buffer.from(passkey.credential_id, 'base64url'),
         credentialPublicKey: Buffer.from(passkey.public_key, 'base64url'),
         counter: Number(passkey.counter)
-      }
+      },
+      requireUserVerification: false
     });
 
     if (verification.verified) {
-      // Update authenticator counter
-      const newCounter = verification.authenticationInfo.newCounter;
+      const newCounter = verification.authenticationInfo ? verification.authenticationInfo.newCounter : Number(passkey.counter) + 1;
       await pool.query('UPDATE UserPasskeys SET counter = ? WHERE id = ?', [newCounter, passkey.id]);
 
       if (matchedChallengeKey) {

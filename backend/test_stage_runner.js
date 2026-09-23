@@ -625,6 +625,14 @@ async function runStages() {
     assert(masterDbRes.status === 200, 'Master Super-User accesses /api/database/overview (200 OK)');
     assert(masterDbRes.data.tables.some(t => t.name === 'UserPasskeys'), 'Overview includes UserPasskeys table schema');
 
+    // 7.4 Master Admin generates Passkey Registration Options
+    const masterPasskeyOptRes = await api.post('/auth/passkey/register-options', {}, {
+      headers: { 'x-auth-token': masterToken }
+    });
+    assert(masterPasskeyOptRes.status === 200, 'Master Super-User generates passkey registration options (200 OK)');
+    assert(masterPasskeyOptRes.data && masterPasskeyOptRes.data.challenge, 'Admin options return cryptographic challenge');
+    assert(masterPasskeyOptRes.data.user && masterPasskeyOptRes.data.user.name === masterAdminEmail, 'Admin passkey user identifier matches admin email');
+
     // 7.4 Request Passwordless Registration Options (New Business User)
     const pwlessUser = {
       email: `pwless_biz_${Date.now()}@biometrics-inc.co.uk`,
