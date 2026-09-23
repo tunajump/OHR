@@ -1,9 +1,25 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// Dynamically resolve API URL at runtime to guarantee production domain compatibility
+const getApiBaseUrl = () => {
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL;
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    const hostname = window.location.hostname;
+    // In local dev, talk directly to local backend
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:5000/api';
+    }
+    // In production on https://ohreferral.co.uk or render static site, use relative /api
+    return '/api';
+  }
+  return '/api';
+};
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: getApiBaseUrl(),
+  timeout: 15000, // 15-second safety timeout so requests never spin forever
   headers: {
     'Content-Type': 'application/json',
   },

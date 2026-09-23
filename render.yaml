@@ -29,7 +29,7 @@ services:
   - type: web
     name: ohr-frontend
     env: static
-    buildCommand: cd frontend && npm install && CI=false npm run build
+    buildCommand: cd frontend && npm install && REACT_APP_API_URL=/api CI=false npm run build
     staticPublishPath: frontend/build
     routes:
       - type: rewrite
@@ -40,6 +40,6 @@ services:
         destination: /index.html
     envVars:
       - key: REACT_APP_API_URL
-        value: https://ohr-backend.onrender.com/api
+        value: /api
       - key: CI
         value: false
