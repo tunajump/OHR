@@ -1,0 +1,56 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ohr-production-frontend
+    restart: always
+    ports:
+      - 80:80
+    environment:
+      - REACT_APP_API_URL=/api
+    depends_on:
+      - backend
+    networks:
+      - ohr_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ohr-production-backend
+    restart: always
+    expose:
+      - 5000
+    environment:
+      - PORT=5000
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_USER=
+      - DB_PASSWORD=
+      - DB_NAME=
+      - JWT_SECRET=
+    depends_on:
+      - db
+    networks:
+      - ohr_network
+
+  db:
+    image: mysql:8.0
+    container_name: ohr-production-db
+    restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=
+      - MYSQL_DATABASE=
+    volumes:
+      - mysql_prod_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - ohr_network
+
+volumes:
+  mysql_prod_data:
+
+networks:
+  ohr_network:
+    driver: bridge

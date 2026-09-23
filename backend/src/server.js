@@ -24,10 +24,12 @@ const authRoutes = require('./routes/authRoutes');
 const businessRoutes = require('./routes/businessRoutes');
 const providerRoutes = require('./routes/providerRoutes');
 const referralRoutes = require('./routes/referralRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 // Secure and expose all endpoints
 app.use('/api', authRoutes);
 app.use('/api', referralRoutes);
+app.use('/api', adminRoutes);
 
 // Register business and provider routes with and without prefix for extreme flexibility
 app.use('/api/business', businessRoutes);
@@ -77,6 +79,21 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     } catch (e) {}
     try {
       await pool.query('ALTER TABLE OHProviderLocations ADD COLUMN longitude DECIMAL(11, 8) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE Referrals ADD COLUMN employee_count INT NOT NULL DEFAULT 1');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE Referrals ADD COLUMN contact_name VARCHAR(255) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE Referrals ADD COLUMN contact_email VARCHAR(255) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE Referrals ADD COLUMN contact_phone VARCHAR(50) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE Referrals ADD COLUMN notes TEXT NULL');
     } catch (e) {}
     console.log('Database verification completed gracefully');
   }

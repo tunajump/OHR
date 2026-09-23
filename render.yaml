@@ -1,0 +1,51 @@
+# Render Blueprint Specification
+services:
+  # 1. Backend API Web Service
+  - type: web
+    name: ohr-backend
+    env: node
+    plan: starter
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DB_HOST
+        fromService:
+          type: web
+          name: ohr-mysql
+          property: host
+      - key: DB_PORT
+        value: 3306
+      - key: DB_USER
+        value: root
+      - key: DB_PASSWORD
+        fromService:
+          type: web
+          name: ohr-mysql
+          envVarKey: MYSQL_ROOT_PASSWORD
+      - key: DB_NAME
+        value: ohr_production
+
+  # 2. Frontend React SPA Static Site
+  - type: web
+    name: ohr-frontend
+    env: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./build
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: REACT_APP_API_URL
+        fromService:
+          type: web
+          name: ohr-backend
+          property: url
