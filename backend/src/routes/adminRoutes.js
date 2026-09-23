@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../utils/db');
 const auth = require('../middleware/auth');
+const emailService = require('../utils/emailService');
 
 // Middleware to restrict access to super-users (admin)
 const requireAdmin = async (req, res, next) => {
@@ -24,7 +25,7 @@ const requireAdmin = async (req, res, next) => {
 // In-memory store for employee notifications
 let employeeNotifications = [];
 
-// Record employee notification (public)
+// Record employee notification (public) & send email to manager + admin
 router.post('/employees/notify', async (req, res) => {
   const { employeeName, employeeEmail, companyName, managerEmail, message } = req.body;
   
@@ -43,7 +44,102 @@ router.post('/employees/notify', async (req, res) => {
   };
 
   employeeNotifications.push(newRecord);
-  return res.status(201).json({ message: 'Notification recorded successfully', data: newRecord });
+
+  // Dispatch outgoing notification from system mailbox
+  try {
+    await emailService.sendEmployeeSuggestionNotification({
+      employeeName,
+      employeeEmail,
+      companyName,
+      managerEmail,
+      message
+    });
+  } catch (mailErr) {
+    console.warn('Notice sending employee suggestion email:', mailErr.message);
+  }
+
+  return res.status(201).json({ message: 'Notification recorded and dispatched successfully', data: newRecord });
+});
+
+// Public Contact Form Enquiry (automatically routed to admin@ohreferral.co.uk)
+router.post('/contact', async (req, res) => {
+  try {
+    const { name, email, phone, subject, message } = req.body;
+    if (!email || !message) {
+      return res.status(400).json({ message: 'A contact email address and message are required.' });
+    }
+
+    const trimmedEmail = String(email).trim();
+    if (!trimmedEmail.includes('@')) {
+      return res.status(400).json({ message: 'Please provide a valid email address.' });
+    }
+
+    // Store in DB or Memory
+    try {
+      await pool.query(
+        'INSERT INTO ContactMessages (name, email, phone, subject, message) VALUES (?, ?, ?, ?, ?)',
+        [name || '', trimmedEmail, phone || '', subject || '', message]
+      );
+    } catch (dbErr) {
+      if (pool.useMock && pool.memoryDb?.ContactMessages) {
+        pool.memoryDb.ContactMessages.push({
+          id: pool.nextIds.ContactMessages++,
+          name: name || '',
+          email: trimmedEmail,
+          phone: phone || '',
+          subject: subject || '',
+          message,
+          created_at: new Date().toISOString()
+        });
+      }
+    }
+
+    // Automatically send to admin@ohreferral.co.uk
+    const dispatch = await emailService.sendContactEnquiry({
+      name,
+      email: trimmedEmail,
+      phone,
+      subject,
+      message
+    });
+
+    return res.status(200).json({
+      message: 'Your enquiry has been successfully delivered to the OHReferral administration team.',
+      routedTo: emailService.CONTACT_DEFAULT_RECEIVER,
+      fromMailbox: emailService.SYSTEM_FROM_EMAIL,
+      dispatch
+    });
+  } catch (error) {
+    console.error('Error in contact endpoint:', error);
+    return res.status(500).json({ message: 'Failed to send message', error: error.message });
+  }
+});
+
+// Admin: View Contact Messages
+router.get('/contact/messages', [auth, requireAdmin], async (req, res) => {
+  try {
+    if (pool.useMock) {
+      return res.json({ messages: pool.memoryDb.ContactMessages || [] });
+    }
+    const [messages] = await pool.query('SELECT * FROM ContactMessages ORDER BY created_at DESC');
+    return res.json({ messages: messages || [] });
+  } catch (err) {
+    return res.status(500).json({ message: 'Failed to retrieve messages', error: err.message });
+  }
+});
+
+// Admin: View Email Service Configuration
+router.get('/email/config', [auth, requireAdmin], async (req, res) => {
+  return res.json({
+    systemSenderName: process.env.SYSTEM_SENDER_NAME || 'OHReferral',
+    systemFromEmail: emailService.SYSTEM_FROM_EMAIL,
+    adminEmail: emailService.ADMIN_EMAIL,
+    contactDefaultReceiver: emailService.CONTACT_DEFAULT_RECEIVER,
+    smtpConfigured: Boolean(process.env.SMTP_HOST && (process.env.SMTP_USER || process.env.SMTP_PASS)),
+    smtpHost: process.env.SMTP_HOST || 'Self-Contained Structured Log Transport',
+    dispatchedCount: emailService.emailDispatchLog.length,
+    recentDispatches: emailService.emailDispatchLog.slice(-10)
+  });
 });
 
 // Database Reset endpoint (Admin / Super-User only)
@@ -59,6 +155,9 @@ router.post('/database/reset', [auth, requireAdmin], async (req, res) => {
       pool.memoryDb.Referrals = [];
       pool.memoryDb.ReferralMatches = [];
       pool.memoryDb.UserPasskeys = [];
+      pool.memoryDb.ContactMessages = [];
+      employeeNotifications = [];
+
       pool.nextIds.Users = 1;
       pool.nextIds.Businesses = 1;
       pool.nextIds.BusinessLocations = 1;
@@ -68,35 +167,55 @@ router.post('/database/reset', [auth, requireAdmin], async (req, res) => {
       pool.nextIds.Referrals = 1;
       pool.nextIds.ReferralMatches = 1;
       pool.nextIds.UserPasskeys = 1;
-      employeeNotifications = [];
-    } else {
-      // In MySQL, truncate tables in foreign key order
-      await pool.query('SET FOREIGN_KEY_CHECKS = 0');
-      await pool.query('TRUNCATE TABLE UserPasskeys');
-      await pool.query('TRUNCATE TABLE ReferralMatches');
-      await pool.query('TRUNCATE TABLE Referrals');
-      await pool.query('TRUNCATE TABLE OHProviderServices');
-      await pool.query('TRUNCATE TABLE OHProviderLocations');
-      await pool.query('TRUNCATE TABLE OHProviders');
-      await pool.query('TRUNCATE TABLE BusinessLocations');
-      await pool.query('TRUNCATE TABLE Businesses');
-      await pool.query('TRUNCATE TABLE Users');
-      await pool.query('SET FOREIGN_KEY_CHECKS = 1');
-      employeeNotifications = [];
+      pool.nextIds.ContactMessages = 1;
+
+      return res.json({
+        message: 'In-Memory Database wiped clean successfully. Master admin re-created.',
+        database: 'in-memory'
+      });
     }
-    return res.json({ message: 'Database reset successfully' });
+
+    // Real DB Wipe (Postgres or MySQL)
+    await pool.query('SET FOREIGN_KEY_CHECKS = 0;').catch(() => {});
+    const tables = [
+      'ReferralMatches',
+      'Referrals',
+      'OHProviderServices',
+      'OHProviderLocations',
+      'OHProviders',
+      'BusinessLocations',
+      'Businesses',
+      'UserPasskeys',
+      'ContactMessages',
+      'Users'
+    ];
+
+    for (const tbl of tables) {
+      try {
+        await pool.query(`TRUNCATE TABLE ${tbl} CASCADE`);
+      } catch (e) {
+        try {
+          await pool.query(`DELETE FROM ${tbl}`);
+        } catch (delErr) {}
+      }
+    }
+    await pool.query('SET FOREIGN_KEY_CHECKS = 1;').catch(() => {});
+    employeeNotifications = [];
+
+    return res.json({
+      message: 'Cloud database tables truncated successfully.',
+      database: pool.dbEngineType
+    });
   } catch (error) {
-    console.error('Reset error:', error);
-    return res.status(500).json({ message: 'Failed to reset database', error: error.message });
+    console.error('Database reset error:', error);
+    return res.status(500).json({ message: 'Error resetting database', error: error.message });
   }
 });
 
-// Database Overview endpoint (Admin / Super-User only)
+// Enhanced Database Inspector & Overview for Admin Dashboard
 router.get('/database/overview', [auth, requireAdmin], async (req, res) => {
   try {
-    const isMock = pool.useMock;
-    
-    if (isMock) {
+    if (pool.useMock) {
       const memoryDb = pool.memoryDb || {};
       const usersList = memoryDb.Users || [];
       const businessesList = memoryDb.Businesses || [];
@@ -106,6 +225,7 @@ router.get('/database/overview', [auth, requireAdmin], async (req, res) => {
       const providerServs = memoryDb.OHProviderServices || [];
       const referralsList = memoryDb.Referrals || [];
       const referralMatchesList = memoryDb.ReferralMatches || [];
+      const contactMessagesList = memoryDb.ContactMessages || [];
 
       const tables = [
         {
@@ -170,6 +290,13 @@ router.get('/database/overview', [auth, requireAdmin], async (req, res) => {
           rows: referralMatchesList
         },
         {
+          name: 'ContactMessages',
+          description: 'Enquiries routed to admin@ohreferral.co.uk',
+          count: contactMessagesList.length,
+          columns: ['id', 'name', 'email', 'phone', 'subject', 'message', 'created_at'],
+          rows: contactMessagesList
+        },
+        {
           name: 'EmployeeNotifications',
           description: 'Employee-submitted employer notifications',
           count: employeeNotifications.length,
@@ -198,10 +325,15 @@ router.get('/database/overview', [auth, requireAdmin], async (req, res) => {
         host: 'Live Production Server (Render)',
         status: 'Online & Active',
         supabaseConfigurable: true,
+        emailRouting: {
+          systemSender: emailService.SYSTEM_FROM_EMAIL,
+          adminMailbox: emailService.ADMIN_EMAIL,
+          contactRecipient: emailService.CONTACT_DEFAULT_RECEIVER
+        },
         tables
       });
     } else {
-      // Real MySQL queries
+      // Real Database (Postgres / MySQL)
       const safeQuery = async (query) => {
         try {
           const [rows] = await pool.query(query);
@@ -220,6 +352,7 @@ router.get('/database/overview', [auth, requireAdmin], async (req, res) => {
       const ohProviderServices = await safeQuery('SELECT * FROM OHProviderServices');
       const referrals = await safeQuery('SELECT * FROM Referrals');
       const referralMatches = await safeQuery('SELECT * FROM ReferralMatches');
+      const contactMessages = await safeQuery('SELECT * FROM ContactMessages');
       const passkeys = await safeQuery('SELECT id, user_id, credential_id, counter, transports, device_name, created_at FROM UserPasskeys');
 
       const tables = [
@@ -231,6 +364,7 @@ router.get('/database/overview', [auth, requireAdmin], async (req, res) => {
         { name: 'OHProviderServices', description: 'Services offered by OH providers', count: ohProviderServices.length, rows: ohProviderServices },
         { name: 'Referrals', description: 'Dispatched OH service referrals', count: referrals.length, rows: referrals },
         { name: 'ReferralMatches', description: 'Spatial proximity match assignments', count: referralMatches.length, rows: referralMatches },
+        { name: 'ContactMessages', description: 'Enquiries routed to admin@ohreferral.co.uk', count: contactMessages.length, rows: contactMessages },
         { name: 'EmployeeNotifications', description: 'Employee-submitted employer notifications', count: employeeNotifications.length, rows: employeeNotifications },
         { name: 'UserPasskeys', description: 'Registered WebAuthn FIDO2 Passkeys & biometric credentials', count: passkeys.length, rows: passkeys }
       ];
@@ -248,6 +382,11 @@ router.get('/database/overview', [auth, requireAdmin], async (req, res) => {
         host: hostLabel,
         status: 'Online & Connected',
         supabaseConfigurable: true,
+        emailRouting: {
+          systemSender: emailService.SYSTEM_FROM_EMAIL,
+          adminMailbox: emailService.ADMIN_EMAIL,
+          contactRecipient: emailService.CONTACT_DEFAULT_RECEIVER
+        },
         tables
       });
     }

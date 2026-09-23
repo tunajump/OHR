@@ -669,7 +669,58 @@ async function runStages() {
     });
     assert(dupPwlessEmail.status === 400, 'Passwordless registration options for existing account rejected with 400');
 
-console.log('\n====================================================');
+    // =========================================================================
+    // STAGE 8: Unified Email Service, Contact Form & Master Mailbox Routing
+    // =========================================================================
+    console.log('\n----------------------------------------------------');
+    console.log('STAGE 8: Single Mailbox & Contact Routing to admin@ohreferral.co.uk');
+    console.log('----------------------------------------------------');
+
+    // 8.1 Submit contact enquiry
+    const contactPayload = {
+      name: 'Dr. Jane Watson',
+      email: 'jane.watson@nhs-clinic.co.uk',
+      phone: '020 7946 0555',
+      subject: 'OH Provider Accreditation Enquiry',
+      message: 'Hello, we would like to register our London clinic as an accredited provider.'
+    };
+    const contactRes = await api.post('/contact', contactPayload);
+    assert(contactRes.status === 200, 'Contact enquiry submitted with 200 OK');
+    assert(contactRes.data && contactRes.data.routedTo === 'admin@ohreferral.co.uk', 'Contact enquiry automatically routed to admin@ohreferral.co.uk');
+    assert(contactRes.data && contactRes.data.fromMailbox === 'admin@ohreferral.co.uk', 'Outgoing system emails set from admin@ohreferral.co.uk');
+
+    // 8.2 Contact enquiry validation
+    const invalidContactRes = await api.post('/contact', { name: 'Test', email: 'invalid-email' });
+    assert(invalidContactRes.status === 400, 'Invalid contact enquiry is rejected with 400');
+
+    // 8.3 Employee notification dispatch
+    const empNotifyPayload = {
+      employeeName: 'Tom Hardy',
+      employeeEmail: 'tom.hardy@warehouse.co.uk',
+      companyName: 'Midlands Logistics Ltd',
+      managerEmail: 'hr.manager@midlands-logistics.co.uk',
+      message: 'Please consider exploring Occupational Health support with OHReferral.'
+    };
+    const empNotifyRes = await api.post('/employees/notify', empNotifyPayload);
+    assert(empNotifyRes.status === 201, 'Employee notification recorded and dispatched with 201 Created');
+
+    // 8.4 Admin: Verify Email Service Config
+    const emailConfigRes = await api.get('/email/config', {
+      headers: { 'x-auth-token': masterToken }
+    });
+    assert(emailConfigRes.status === 200, 'Admin can retrieve email configuration (200 OK)');
+    assert(emailConfigRes.data.systemFromEmail === 'admin@ohreferral.co.uk', 'System from email is admin@ohreferral.co.uk');
+    assert(emailConfigRes.data.contactDefaultReceiver === 'admin@ohreferral.co.uk', 'Contact default receiver is admin@ohreferral.co.uk');
+
+    // 8.5 Admin: Verify Contact Messages List
+    const contactMessagesRes = await api.get('/contact/messages', {
+      headers: { 'x-auth-token': masterToken }
+    });
+    assert(contactMessagesRes.status === 200, 'Admin can retrieve contact messages list (200 OK)');
+    assert(Array.isArray(contactMessagesRes.data.messages), 'Contact messages returns array');
+    assert(contactMessagesRes.data.messages.some(m => m.email === 'jane.watson@nhs-clinic.co.uk'), 'Submitted contact enquiry is present in admin messages store');
+
+    console.log('\n====================================================');
     console.log('  ALL STAGES PASSED: Full OHR Test Suite 100% SUCCESS!  ');
     console.log('====================================================\n');
   } catch (error) {

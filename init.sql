@@ -103,3 +103,14 @@ CREATE TABLE IF NOT EXISTS UserPasskeys (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
 );
+
+-- Create ContactMessages table (routed to admin@ohreferral.co.uk)
+CREATE TABLE IF NOT EXISTS ContactMessages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255),
+    email VARCHAR(255) NOT NULL,
+    phone VARCHAR(50),
+    subject VARCHAR(255),
+    message TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

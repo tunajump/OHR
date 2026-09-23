@@ -77,7 +77,8 @@ const memoryDb = {
   OHProviderServices: [],
   Referrals: [],
   ReferralMatches: [],
-  UserPasskeys: []
+  UserPasskeys: [],
+  ContactMessages: []
 };
 
 const nextIds = {
@@ -89,7 +90,8 @@ const nextIds = {
   OHProviderServices: 1,
   Referrals: 1,
   ReferralMatches: 1,
-  UserPasskeys: 1
+  UserPasskeys: 1,
+  ContactMessages: 1
 };
 
 // Calculate spatial distance between two coordinate pairs using Haversine formula
@@ -667,6 +669,26 @@ const mockPool = {
         return [memoryDb.ReferralMatches];
       }
 
+      // 10. ContactMessages Handlers
+      if (/^insert\s+into\s+contactmessages\b/i.test(normalizedSql)) {
+        const [name, email, phone, subject, message] = params;
+        const newMsg = {
+          id: nextIds.ContactMessages++,
+          name: name || '',
+          email: email || '',
+          phone: phone || '',
+          subject: subject || '',
+          message: message || '',
+          created_at: new Date().toISOString()
+        };
+        memoryDb.ContactMessages.push(newMsg);
+        return [{ insertId: newMsg.id, affectedRows: 1 }];
+      }
+
+      if (/\bfrom\s+contactmessages\b/i.test(normalizedSql)) {
+        return [[...memoryDb.ContactMessages].reverse()];
+      }
+
       if (/^update\s+referralmatches\b/i.test(normalizedSql) && normalizedSql.includes('status = ? where id =')) {
         const [status, id] = params;
         const match = memoryDb.ReferralMatches.find(m => String(m.id) === String(id));
@@ -795,6 +817,16 @@ async function initPgSchema(client) {
         counter BIGINT NOT NULL DEFAULT 0,
         transports VARCHAR(255),
         device_name VARCHAR(255) DEFAULT 'Security Key / Biometrics',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS ContactMessages (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255),
+        email VARCHAR(255) NOT NULL,
+        phone VARCHAR(50),
+        subject VARCHAR(255),
+        message TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 

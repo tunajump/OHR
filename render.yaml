@@ -16,6 +16,10 @@ services:
         generateValue: true
       - key: ADMIN_EMAIL
         value: admin@ohreferral.co.uk
+      - key: SYSTEM_FROM_EMAIL
+        value: admin@ohreferral.co.uk
+      - key: CONTACT_DEFAULT_RECEIVER
+        value: admin@ohreferral.co.uk
       - key: ADMIN_PASSWORD
         value: AdminOHR2026!Secure
       - key: DATABASE_URL
