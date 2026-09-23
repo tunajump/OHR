@@ -797,6 +797,10 @@ async function initPgSchema(client) {
         device_name VARCHAR(255) DEFAULT 'Security Key / Biometrics',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      INSERT INTO Users (email, password, user_type)
+      VALUES ('admin@ohreferral.co.uk', '$2a$10$WoRMgichwljOSCfJ8E4rFOhdKsPxvzeJhd9JV/QRQ9/53AwGJhIIi', 'admin')
+      ON CONFLICT (email) DO NOTHING;
     `);
     console.log('✅ Supabase PostgreSQL schema initialized and verified!');
   } catch (err) {
