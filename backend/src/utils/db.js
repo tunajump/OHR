@@ -28,7 +28,8 @@ const poolConfig = {
   database: process.env.DB_NAME || 'your_database_name',
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
+  connectTimeout: 2000
 };
 
 if (sslConfig) {
@@ -40,7 +41,17 @@ let useMock = process.env.DB_HOST === 'force_mock_db';
 
 // In-memory database representation
 const memoryDb = {
-  Users: [],
+  Users: [
+    {
+      id: 1,
+      email: 'admin@ohreferral.co.uk',
+      password: '$2a$10$WoRMgichwljOSCfJ8E4rFOhdKsPxvzeJhd9JV/QRQ9/53AwGJhIIi',
+      user_type: 'admin',
+      userType: 'admin',
+      name: 'Super Administrator',
+      created_at: new Date().toISOString()
+    }
+  ],
   Businesses: [],
   BusinessLocations: [],
   OHProviders: [],
@@ -52,7 +63,7 @@ const memoryDb = {
 };
 
 const nextIds = {
-  Users: 1,
+  Users: 2,
   Businesses: 1,
   BusinessLocations: 1,
   OHProviders: 1,

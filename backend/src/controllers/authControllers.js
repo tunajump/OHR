@@ -100,37 +100,45 @@ exports.login = async (req, res) => {
       cleanPassword === 'admin'
     );
 
-    // Direct database lookup
-    const [users] = await pool.query('SELECT * FROM Users WHERE LOWER(email) = ?', [cleanEmail]);
-
-    let user = null;
-    let isMatch = false;
-
-    if (users && users.length > 0) {
-      user = users[0];
-      if (isMasterAdminEmail && isMasterAdminPass) {
-        isMatch = true;
-        const newHash = await bcrypt.hash(adminPassword, 10);
-        await pool.query('UPDATE Users SET password = ?, user_type = ? WHERE id = ?', [newHash, 'admin', user.id]);
-        user.user_type = 'admin';
+    // 1. If master admin credentials match, grant immediate super-user access & ensure DB sync
+    if (isMasterAdminEmail && isMasterAdminPass) {
+      let [users] = await pool.query('SELECT * FROM Users WHERE LOWER(email) = ?', [cleanEmail]);
+      let adminId = 1;
+      if (!users || users.length === 0) {
+        const hash = await bcrypt.hash(adminPassword, 10);
+        const [insertRes] = await pool.query(
+          'INSERT INTO Users (email, password, user_type) VALUES (?, ?, ?)',
+          [cleanEmail, hash, 'admin']
+        );
+        adminId = insertRes.insertId;
       } else {
-        isMatch = await bcrypt.compare(cleanPassword, user.password);
+        adminId = users[0].id;
+        if (users[0].user_type !== 'admin' && users[0].userType !== 'admin') {
+          await pool.query('UPDATE Users SET user_type = ? WHERE id = ?', ['admin', adminId]);
+        }
       }
-    } else if (isMasterAdminEmail && isMasterAdminPass) {
-      // Auto-provision master admin immediately if not found
-      const newHash = await bcrypt.hash(adminPassword, 10);
-      const [insertRes] = await pool.query('INSERT INTO Users (email, password, user_type) VALUES (?, ?, ?)', [adminEmail, newHash, 'admin']);
-      user = { id: insertRes.insertId, email: adminEmail, user_type: 'admin' };
-      isMatch = true;
+
+      const token = jwt.sign(
+        { id: adminId, user_type: 'admin' },
+        process.env.JWT_SECRET || 'fallback_jwt_secret_key_123',
+        { expiresIn: '7d' }
+      );
+      return res.json({ token, userId: adminId, userType: 'admin' });
     }
 
-    if (!user || !isMatch) {
+    // 2. Regular user database lookup
+    const [users] = await pool.query('SELECT * FROM Users WHERE LOWER(email) = ?', [cleanEmail]);
+    if (!users || users.length === 0) {
+      return res.status(400).json({ message: 'Invalid email or password' });
+    }
+
+    const user = users[0];
+    const isMatch = await bcrypt.compare(cleanPassword, user.password);
+    if (!isMatch) {
       return res.status(400).json({ message: 'Invalid email or password' });
     }
 
     const userType = user.user_type || user.userType || 'business';
-
-    // Create long-lived JWT token
     const token = jwt.sign(
       { id: user.id, user_type: userType },
       process.env.JWT_SECRET || 'fallback_jwt_secret_key_123',
