@@ -123,8 +123,12 @@ const mockPool = {
       }
 
       if (normalizedSql.includes('select') && normalizedSql.includes('from userpasskeys where credential_id =')) {
-        const credId = params[0];
-        const results = memoryDb.UserPasskeys.filter(pk => pk.credential_id === credId);
+        const credId = String(params[0] || '').trim();
+        const results = memoryDb.UserPasskeys.filter(pk => 
+          String(pk.credential_id || '').trim() === credId ||
+          Buffer.from(String(pk.credential_id || ''), 'base64url').toString() === credId ||
+          pk.credential_id === Buffer.from(credId).toString('base64url')
+        );
         return [results];
       }
 
