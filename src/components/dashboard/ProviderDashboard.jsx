@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import PasskeyManager from '../auth/PasskeyManager';
 import { 
   Stethoscope, 
   MapPin, 
@@ -594,6 +595,9 @@ const ProviderDashboard = () => {
             </div>
           )}
         </div>
+
+        {/* Passkeys & Biometric Security Management */}
+        <PasskeyManager />
       </div>
 
       {/* Add Location Modal with Multi-Service Selection */}

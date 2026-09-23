@@ -1,4 +1,4 @@
-name: CI/CD Automated Production Deployment
+name: CI/CD Automated Test & Deployment
 
 on:
   push:
@@ -29,33 +29,9 @@ jobs:
   deploy-to-production:
     name: Deploy to Production Server
     needs: test-and-verify
+    if: false
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Deploy via SSH to Hostinger / Cloud Server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.HOSTINGER_HOST }}
-          username: ${{ secrets.HOSTINGER_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_KEY }}
-          port: ${{ secrets.HOSTINGER_SSH_PORT || 22 }}
-          script: |
-            set -e
-            echo "🚀 Starting automated deployment..."
-
-            # Navigate to application directory on the server
-            cd /var/www/ohr || cd ~/ohr || cd ~/app
-
-            # Pull latest changes from Git
-            git pull origin main
-
-            # Rebuild and restart containers with zero downtime
-            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
-
-            # Clean up old unused images to save disk space
-            docker image prune -f
-
-            echo "✅ Deployment completed successfully!"

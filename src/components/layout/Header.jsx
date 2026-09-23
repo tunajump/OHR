@@ -8,7 +8,9 @@ import {
   Stethoscope, 
   Menu, 
   X, 
-  CheckCircle2
+  CheckCircle2,
+  Database,
+  Shield
 } from 'lucide-react';
 
 const Header = () => {
@@ -22,7 +24,9 @@ const Header = () => {
     setMobileMenuOpen(false);
   };
 
-  const dashboardPath = user?.userType === 'provider' 
+  const dashboardPath = user?.userType === 'admin'
+    ? '/admin/database'
+    : user?.userType === 'provider' 
     ? '/dashboard/provider' 
     : '/dashboard/business';
 
@@ -75,22 +79,38 @@ const Header = () => {
           <div className="hidden md:flex items-center gap-4">
             {isAuthenticated ? (
               <div className="flex items-center gap-4">
-                <Link 
-                  to={dashboardPath} 
-                  className="text-sm font-semibold text-slate-700 hover:text-blue-600 flex items-center gap-1.5 transition-colors"
-                >
-                  <LayoutDashboard className="w-4 h-4 text-blue-600" />
-                  <span>Dashboard</span>
-                </Link>
+                {user?.userType === 'admin' ? (
+                  <Link 
+                    to="/admin/database" 
+                    className="text-sm font-semibold text-purple-700 hover:text-purple-900 bg-purple-50 border border-purple-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
+                  >
+                    <Database className="w-4 h-4 text-purple-600" />
+                    <span>Admin Database</span>
+                  </Link>
+                ) : (
+                  <Link 
+                    to={dashboardPath} 
+                    className="text-sm font-semibold text-slate-700 hover:text-blue-600 flex items-center gap-1.5 transition-colors"
+                  >
+                    <LayoutDashboard className="w-4 h-4 text-blue-600" />
+                    <span>Dashboard</span>
+                  </Link>
+                )}
 
                 <div className="flex items-center gap-2 pl-4 border-l border-slate-200 text-xs">
                   <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-medium">
-                    {user?.userType === 'provider' ? <Stethoscope className="w-4 h-4 text-blue-600" /> : <Building2 className="w-4 h-4 text-blue-600" />}
+                    {user?.userType === 'admin' ? (
+                      <Shield className="w-4 h-4 text-purple-600" />
+                    ) : user?.userType === 'provider' ? (
+                      <Stethoscope className="w-4 h-4 text-blue-600" />
+                    ) : (
+                      <Building2 className="w-4 h-4 text-blue-600" />
+                    )}
                   </div>
                   <div className="text-left">
                     <p className="font-semibold text-slate-900 leading-tight truncate max-w-[150px]">{user?.email}</p>
                     <span className="text-[10px] text-slate-500 font-medium capitalize">
-                      {user?.userType === 'provider' ? 'OH Provider' : 'Business'}
+                      {user?.userType === 'admin' ? 'Super-User Admin' : user?.userType === 'provider' ? 'OH Provider' : 'Business'}
                     </span>
                   </div>
                 </div>

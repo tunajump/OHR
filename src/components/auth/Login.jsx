@@ -1,7 +1,21 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { LogIn, Mail, Lock, AlertCircle, Eye, EyeOff, Building2, Stethoscope, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { 
+  LogIn, 
+  Mail, 
+  Lock, 
+  AlertCircle, 
+  Eye, 
+  EyeOff, 
+  Building2, 
+  Stethoscope, 
+  ArrowRight, 
+  CheckCircle2, 
+  Fingerprint,
+  ShieldCheck
+} from 'lucide-react';
+import { loginWithPasskey, isPasskeySupported } from '../../services/passkeyService';
 
 const Login = () => {
   const location = useLocation();
@@ -10,11 +24,49 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
 
-  const { login, justRegistered } = useAuth();
+  const { login, justRegistered, setAuthSession } = useAuth();
   const navigate = useNavigate();
 
   const from = location.state?.from?.pathname || null;
+
+  const redirectUser = (userType) => {
+    if (from) {
+      navigate(from, { replace: true });
+    } else if (userType === 'admin') {
+      navigate('/admin/database', { replace: true });
+    } else if (userType === 'provider') {
+      navigate('/dashboard/provider', { replace: true });
+    } else {
+      navigate('/dashboard/business', { replace: true });
+    }
+  };
+
+  const handlePasskeyLogin = async () => {
+    setError('');
+    setPasskeyLoading(true);
+
+    try {
+      const data = await loginWithPasskey(email);
+      if (data && data.verified && data.token) {
+        const userData = {
+          id: data.userId,
+          email: data.email,
+          userType: data.userType
+        };
+        setAuthSession(data.token, userData);
+        redirectUser(data.userType);
+      } else {
+        setError(data.message || 'Passkey verification failed.');
+      }
+    } catch (err) {
+      console.error('Passkey login error:', err);
+      setError(err.message || 'Passkey sign-in cancelled or failed.');
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -30,21 +82,17 @@ const Login = () => {
     setSubmitting(false);
 
     if (result.success) {
-      if (from) {
-        navigate(from, { replace: true });
-      } else if (result.user.userType === 'provider') {
-        navigate('/dashboard/provider', { replace: true });
-      } else {
-        navigate('/dashboard/business', { replace: true });
-      }
+      redirectUser(result.user.userType);
     } else {
       setError(result.error);
     }
   };
 
+  const passkeySupported = isPasskeySupported();
+
   return (
     <div className="flex-1 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100">
+      <div className="max-w-md w-full space-y-7 bg-white p-8 sm:p-10 rounded-2xl shadow-xl border border-slate-100">
         {/* Header */}
         <div className="text-center">
           <div className="mx-auto w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600 mb-4 shadow-inner">
@@ -53,10 +101,45 @@ const Login = () => {
           <h2 className="text-2xl font-bold tracking-tight text-slate-900">
             Sign in to your account
           </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Access your referrals, matching queue, and locations
+          <p className="mt-1.5 text-xs text-slate-500">
+            Access your referrals, matching queue, and accredited services
           </p>
         </div>
+
+        {/* Passkey 1-Click Login Option */}
+        {passkeySupported && (
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={handlePasskeyLogin}
+              disabled={passkeyLoading || submitting}
+              className="w-full py-3 px-4 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-800 transition-all flex items-center justify-center gap-2.5 disabled:opacity-60 cursor-pointer"
+            >
+              {passkeyLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span>Verifying Passkey...</span>
+                </>
+              ) : (
+                <>
+                  <Fingerprint className="w-5 h-5" />
+                  <span>Sign in with Passkey / Biometrics</span>
+                </>
+              )}
+            </button>
+            <p className="text-[11px] text-center text-slate-500 flex items-center justify-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Instant, passwordless login via Face ID, Touch ID, or PIN</span>
+            </p>
+
+            <div className="relative flex items-center justify-center pt-2">
+              <div className="border-t border-slate-200 w-full" />
+              <span className="bg-white px-3 text-[11px] text-slate-400 font-medium absolute">
+                or sign in with password
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Post-Registration Notification */}
         {(location.state?.message || justRegistered) && (

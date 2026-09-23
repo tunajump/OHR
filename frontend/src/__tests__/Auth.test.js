@@ -1,6 +1,14 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
+
+jest.mock('@simplewebauthn/browser', () => ({
+  startRegistration: jest.fn().mockResolvedValue({ id: 'mock_pk', response: {} }),
+  startAuthentication: jest.fn().mockResolvedValue({ id: 'mock_pk', response: {} }),
+  browserSupportsWebAuthn: jest.fn().mockReturnValue(true),
+  browserSupportsWebAuthnAutofill: jest.fn().mockResolvedValue(true)
+}));
+
 import Login from '../components/auth/Login';
 import Register from '../components/auth/Register';
 import AuthContext from '../context/AuthContext';
@@ -23,7 +31,7 @@ describe('Auth Views - Stage Tests', () => {
 
     const emailInput = screen.getByPlaceholderText('name@company.co.uk');
     const passwordInput = screen.getByPlaceholderText('••••••••');
-    const submitBtn = screen.getByRole('button', { name: /sign in/i });
+    const submitBtn = screen.getByRole('button', { name: /^sign in$/i });
 
     fireEvent.change(emailInput, { target: { value: 'test@example.com' } });
     fireEvent.change(passwordInput, { target: { value: 'password123' } });

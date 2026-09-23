@@ -25,12 +25,6 @@ const Footer = () => {
             About Us
           </Link>
           <Link 
-            to="/database" 
-            className="text-[#475569] hover:text-[#2563eb] transition-colors"
-          >
-            Database
-          </Link>
-          <Link 
             to="/legal" 
             className="text-[#475569] hover:text-[#2563eb] transition-colors"
           >

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import NewReferralModal from '../referrals/NewReferralModal';
+import PasskeyManager from '../auth/PasskeyManager';
 import { 
   Building2, 
   MapPin, 
@@ -779,6 +780,9 @@ const BusinessDashboard = () => {
             </div>
           )}
         </div>
+
+        {/* Passkeys & Biometric Security Management */}
+        <PasskeyManager />
       </div>
 
       {/* New Referral Modal */}

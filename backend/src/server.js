@@ -25,9 +25,12 @@ const businessRoutes = require('./routes/businessRoutes');
 const providerRoutes = require('./routes/providerRoutes');
 const referralRoutes = require('./routes/referralRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const passkeyRoutes = require('./routes/passkeyRoutes');
 
 // Secure and expose all endpoints
 app.use('/api', authRoutes);
+app.use('/api/auth/passkey', passkeyRoutes);
+app.use('/api/passkey', passkeyRoutes);
 app.use('/api', referralRoutes);
 app.use('/api', adminRoutes);
 

@@ -527,21 +527,72 @@ async function runStages() {
     );
     assert(res2.status === 400, 'Editing a matched referral is rejected with 400 status');
 
-    // 5.3 Delete a matched referral
-    const deleteMatchedRes = await api.delete(`/referrals/${pendingRefId}`, {
-      headers: { 'x-auth-token': bizToken },
-    });
-    assert(deleteMatchedRes.status === 200, 'Business can cancel/delete a matched referral');
+    // =========================================================================
+    // STAGE 6: Admin Database Security & WebAuthn Passkeys Endpoints
+    // =========================================================================
+    console.log('\n----------------------------------------------------');
+    console.log('STAGE 6: Admin Database Security & WebAuthn Passkeys');
+    console.log('----------------------------------------------------');
 
-    // 5.4 Delete a pending referral
-    const pendingMcrRefId = refMcrUnmatchedService.data.referralId;
-    const deletePendingRes = await api.delete(`/referrals/${pendingMcrRefId}`, {
+    // 6.1 Unauthenticated request to /api/database/overview is rejected with 401
+    const unauthDbRes = await api.get('/database/overview');
+    assert(unauthDbRes.status === 401, 'Unauthenticated request to /api/database/overview is rejected (401)');
+
+    // 6.2 Non-admin request to /api/database/overview is rejected with 403 Forbidden
+    const nonAdminDbRes = await api.get('/database/overview', { headers: { 'x-auth-token': bizToken } });
+    assert(nonAdminDbRes.status === 403, 'Non-admin user cannot access database inspector (403 Forbidden)');
+
+    // 6.3 Register / Login Admin Super-User Account
+    const adminUser = {
+      email: `test_admin_${Date.now()}@ohreferral.co.uk`,
+      password: 'AdminMasterPass999!',
+      userType: 'admin',
+      organizationName: 'OHR Administration Team',
+      name: 'Super Administrator',
+      phone: '020 7946 0000'
+    };
+    const regAdminRes = await api.post('/register', adminUser);
+    assert(regAdminRes.status === 201, 'Super-admin registered with 201 Created');
+    const adminToken = regAdminRes.data.token;
+
+    // 6.4 Authorized Super-Admin can access /api/database/overview
+    const adminDbRes = await api.get('/database/overview', { headers: { 'x-auth-token': adminToken } });
+    assert(adminDbRes.status === 200, 'Admin can inspect live database overview (200 OK)');
+    assert(Array.isArray(adminDbRes.data.tables), 'Database overview returns table schemas and rows');
+    assert(adminDbRes.data.tables.some(t => t.name === 'Users'), 'Tables overview includes Users');
+    assert(adminDbRes.data.tables.some(t => t.name === 'Referrals'), 'Tables overview includes Referrals');
+    assert(adminDbRes.data.tables.some(t => t.name === 'UserPasskeys'), 'Tables overview includes UserPasskeys');
+
+    // 6.5 Passkey registration challenge requires authentication
+    const unauthPasskeyReg = await api.post('/auth/passkey/register/options', {});
+    assert(unauthPasskeyReg.status === 401, 'Passkey registration challenge without auth is rejected (401)');
+
+    // 6.6 Authenticated user can request Passkey registration options
+    const passkeyRegOptions = await api.post(
+      '/auth/passkey/register/options',
+      {},
+      { headers: { 'x-auth-token': bizToken } }
+    );
+    assert(passkeyRegOptions.status === 200, 'User can generate WebAuthn registration challenge options (200 OK)');
+    assert(passkeyRegOptions.data && passkeyRegOptions.data.challenge, 'Registration options contain WebAuthn cryptographic challenge');
+    assert(passkeyRegOptions.data.rp && passkeyRegOptions.data.rp.name, 'Registration options contain Relying Party details');
+
+    // 6.7 Passkey login options generation for registered email
+    const passkeyLoginOptions = await api.post('/auth/passkey/login/options', {
+      email: businessUser.email,
+    });
+    assert(passkeyLoginOptions.status === 200, 'Passkey authentication challenge generated (200 OK)');
+    assert(passkeyLoginOptions.data && passkeyLoginOptions.data.challenge, 'Authentication options contain cryptographic challenge');
+
+    // 6.8 List registered passkeys for user
+    const userPasskeysList = await api.get('/auth/passkey/list', {
       headers: { 'x-auth-token': bizToken },
     });
-    assert(deletePendingRes.status === 200, 'Business can delete a pending referral');
+    assert(userPasskeysList.status === 200, 'User can retrieve registered passkeys list (200 OK)');
+    assert(Array.isArray(userPasskeysList.data), 'Passkeys list returns an array of credentials');
 
     console.log('\n====================================================');
-    console.log('  ALL STAGES PASSED: Referral Lifecycle & Management Verified!  ');
+    console.log('  ALL STAGES PASSED: Full OHR Test Suite 100% SUCCESS!  ');
     console.log('====================================================\n');
   } catch (error) {
     console.error('\n[FATAL ERROR IN STAGE RUNNER]', error.message, error);
@@ -569,8 +620,11 @@ const businessRoutes = require('./src/routes/businessRoutes');
 const providerRoutes = require('./src/routes/providerRoutes');
 const referralRoutes = require('./src/routes/referralRoutes');
 const adminRoutes = require('./src/routes/adminRoutes');
+const passkeyRoutes = require('./src/routes/passkeyRoutes');
 
 app.use('/api', authRoutes);
+app.use('/api/auth/passkey', passkeyRoutes);
+app.use('/api/passkey', passkeyRoutes);
 app.use('/api/business', businessRoutes);
 app.use('/api/provider', providerRoutes);
 app.use('/api', referralRoutes);

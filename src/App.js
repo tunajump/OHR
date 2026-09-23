@@ -109,11 +109,27 @@ function App() {
           <Route path="/employees/learn-more" element={<EmployeesLearnMore />} />
           <Route path="/providers/learn-more" element={<ProvidersLearnMore />} />
 
-          {/* Legal, About, and Database Pages */}
+          {/* Public Legal & About Pages */}
           <Route path="/about" element={<AboutUs />} />
           <Route path="/legal" element={<Legal />} />
-          <Route path="/database" element={<DatabaseViewer />} />
-          <Route path="/admin/database" element={<DatabaseViewer />} />
+
+          {/* Protected Super-User / Admin Database Inspector */}
+          <Route
+            path="/admin/database"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <DatabaseViewer />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/database"
+            element={
+              <ProtectedRoute allowedRoles={['admin']}>
+                <DatabaseViewer />
+              </ProtectedRoute>
+            }
+          />
           
           {/* Dashboards */}
           <Route

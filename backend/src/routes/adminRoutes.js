@@ -1,11 +1,30 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../utils/db');
+const auth = require('../middleware/auth');
+
+// Middleware to restrict access to super-users (admin)
+const requireAdmin = async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+    const [users] = await pool.query('SELECT user_type FROM Users WHERE id = ?', [userId]);
+    if (!users || users.length === 0 || (users[0].user_type !== 'admin' && users[0].userType !== 'admin')) {
+      return res.status(403).json({ message: 'Access denied: Super-User / Admin privileges required.' });
+    }
+    req.isAdmin = true;
+    next();
+  } catch (error) {
+    return res.status(500).json({ message: 'Authorization verification failed', error: error.message });
+  }
+};
 
 // In-memory store for employee notifications
 let employeeNotifications = [];
 
-// Record employee notification
+// Record employee notification (public)
 router.post('/employees/notify', async (req, res) => {
   const { employeeName, employeeEmail, companyName, managerEmail, message } = req.body;
   
@@ -27,8 +46,8 @@ router.post('/employees/notify', async (req, res) => {
   return res.status(201).json({ message: 'Notification recorded successfully', data: newRecord });
 });
 
-// Database Reset endpoint for easy testing
-router.post('/database/reset', async (req, res) => {
+// Database Reset endpoint (Admin / Super-User only)
+router.post('/database/reset', [auth, requireAdmin], async (req, res) => {
   try {
     if (pool.useMock) {
       pool.memoryDb.Users = [];
@@ -39,6 +58,7 @@ router.post('/database/reset', async (req, res) => {
       pool.memoryDb.OHProviderServices = [];
       pool.memoryDb.Referrals = [];
       pool.memoryDb.ReferralMatches = [];
+      pool.memoryDb.UserPasskeys = [];
       pool.nextIds.Users = 1;
       pool.nextIds.Businesses = 1;
       pool.nextIds.BusinessLocations = 1;
@@ -47,10 +67,12 @@ router.post('/database/reset', async (req, res) => {
       pool.nextIds.OHProviderServices = 1;
       pool.nextIds.Referrals = 1;
       pool.nextIds.ReferralMatches = 1;
+      pool.nextIds.UserPasskeys = 1;
       employeeNotifications = [];
     } else {
       // In MySQL, truncate tables in foreign key order
       await pool.query('SET FOREIGN_KEY_CHECKS = 0');
+      await pool.query('TRUNCATE TABLE UserPasskeys');
       await pool.query('TRUNCATE TABLE ReferralMatches');
       await pool.query('TRUNCATE TABLE Referrals');
       await pool.query('TRUNCATE TABLE OHProviderServices');
@@ -69,8 +91,8 @@ router.post('/database/reset', async (req, res) => {
   }
 });
 
-// Database Overview endpoint
-router.get('/database/overview', async (req, res) => {
+// Database Overview endpoint (Admin / Super-User only)
+router.get('/database/overview', [auth, requireAdmin], async (req, res) => {
   try {
     const isMock = pool.useMock;
     
@@ -153,6 +175,21 @@ router.get('/database/overview', async (req, res) => {
           count: employeeNotifications.length,
           columns: ['id', 'employee_name', 'employee_email', 'company_name', 'manager_email', 'message', 'created_at'],
           rows: employeeNotifications
+        },
+        {
+          name: 'UserPasskeys',
+          description: 'Registered WebAuthn FIDO2 Passkeys & biometric credentials',
+          count: (memoryDb.UserPasskeys || []).length,
+          columns: ['id', 'user_id', 'credential_id', 'counter', 'transports', 'device_name', 'created_at'],
+          rows: (memoryDb.UserPasskeys || []).map(p => ({
+            id: p.id,
+            user_id: p.user_id,
+            credential_id: p.credential_id ? `${p.credential_id.substring(0, 16)}...` : '',
+            counter: p.counter,
+            transports: p.transports,
+            device_name: p.device_name,
+            created_at: p.created_at
+          }))
         }
       ];
 
@@ -183,6 +220,7 @@ router.get('/database/overview', async (req, res) => {
       const ohProviderServices = await safeQuery('SELECT * FROM OHProviderServices');
       const referrals = await safeQuery('SELECT * FROM Referrals');
       const referralMatches = await safeQuery('SELECT * FROM ReferralMatches');
+      const passkeys = await safeQuery('SELECT id, user_id, credential_id, counter, transports, device_name, created_at FROM UserPasskeys');
 
       const tables = [
         { name: 'Users', description: 'User accounts and auth credentials', count: users.length, rows: users },
@@ -193,7 +231,8 @@ router.get('/database/overview', async (req, res) => {
         { name: 'OHProviderServices', description: 'Services offered by OH providers', count: ohProviderServices.length, rows: ohProviderServices },
         { name: 'Referrals', description: 'Dispatched OH service referrals', count: referrals.length, rows: referrals },
         { name: 'ReferralMatches', description: 'Spatial proximity match assignments', count: referralMatches.length, rows: referralMatches },
-        { name: 'EmployeeNotifications', description: 'Employee-submitted employer notifications', count: employeeNotifications.length, rows: employeeNotifications }
+        { name: 'EmployeeNotifications', description: 'Employee-submitted employer notifications', count: employeeNotifications.length, rows: employeeNotifications },
+        { name: 'UserPasskeys', description: 'Registered WebAuthn FIDO2 Passkeys & biometric credentials', count: passkeys.length, rows: passkeys }
       ];
 
       return res.json({

@@ -90,3 +90,16 @@ CREATE TABLE ReferralMatches (
     FOREIGN KEY (referral_id) REFERENCES Referrals(id),
     FOREIGN KEY (provider_id) REFERENCES OHProviders(id)
 );
+
+-- Create UserPasskeys table for WebAuthn FIDO2 Biometric Login
+CREATE TABLE IF NOT EXISTS UserPasskeys (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    credential_id VARCHAR(500) NOT NULL UNIQUE,
+    public_key TEXT NOT NULL,
+    counter BIGINT NOT NULL DEFAULT 0,
+    transports VARCHAR(255),
+    device_name VARCHAR(255) DEFAULT 'Security Key / Biometrics',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
+);

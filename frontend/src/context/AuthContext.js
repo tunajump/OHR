@@ -97,6 +97,14 @@ export const AuthProvider = ({ children }) => {
     setJustRegistered(false);
   };
 
+  const setAuthSession = (receivedToken, userData) => {
+    localStorage.setItem('token', receivedToken);
+    localStorage.setItem('user', JSON.stringify(userData));
+    setToken(receivedToken);
+    setUser(userData);
+    setJustRegistered(false);
+  };
+
   const clearJustRegistered = () => {
     setJustRegistered(false);
   };
@@ -110,6 +118,7 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
+    setAuthSession,
     clearJustRegistered,
   };
 

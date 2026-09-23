@@ -47,7 +47,8 @@ const memoryDb = {
   OHProviderLocations: [],
   OHProviderServices: [],
   Referrals: [],
-  ReferralMatches: []
+  ReferralMatches: [],
+  UserPasskeys: []
 };
 
 const nextIds = {
@@ -58,7 +59,8 @@ const nextIds = {
   OHProviderLocations: 1,
   OHProviderServices: 1,
   Referrals: 1,
-  ReferralMatches: 1
+  ReferralMatches: 1,
+  UserPasskeys: 1
 };
 
 const mockPool = {
@@ -67,17 +69,75 @@ const mockPool = {
 
     try {
       // 1. SELECT * FROM Users WHERE email = ?
-      if (normalizedSql.includes('select * from users where email =')) {
+      if (normalizedSql.includes('select') && normalizedSql.includes('from users where email =')) {
         const email = params[0];
         const results = memoryDb.Users.filter(u => u.email === email);
         return [results];
       }
 
-      // 18. SELECT user_type FROM Users WHERE id = ?
-      if (normalizedSql.includes('select user_type from users where id =')) {
+      // SELECT from Users where id = ?
+      if (normalizedSql.includes('select') && normalizedSql.includes('from users where id =')) {
         const id = params[0];
-        const results = memoryDb.Users.filter(u => u.id === id).map(u => ({ user_type: u.user_type }));
+        const results = memoryDb.Users.filter(u => String(u.id) === String(id)).map(u => ({
+          id: u.id,
+          email: u.email,
+          user_type: u.user_type || u.userType,
+          userType: u.user_type || u.userType,
+          created_at: u.created_at
+        }));
         return [results];
+      }
+
+      // UserPasskeys handlers
+      if (normalizedSql.startsWith('insert into userpasskeys')) {
+        const [user_id, credential_id, public_key, counter, transports, device_name] = params;
+        const id = nextIds.UserPasskeys++;
+        const newPk = {
+          id,
+          user_id,
+          credential_id,
+          public_key,
+          counter: counter || 0,
+          transports: transports || '',
+          device_name: device_name || 'Security Key / Biometrics',
+          created_at: new Date().toISOString()
+        };
+        memoryDb.UserPasskeys.push(newPk);
+        return [{ insertId: id }];
+      }
+
+      if (normalizedSql.includes('select') && normalizedSql.includes('from userpasskeys where credential_id =')) {
+        const credId = params[0];
+        const results = memoryDb.UserPasskeys.filter(pk => pk.credential_id === credId);
+        return [results];
+      }
+
+      if (normalizedSql.includes('select') && normalizedSql.includes('from userpasskeys where user_id =')) {
+        const userId = params[0];
+        const results = memoryDb.UserPasskeys.filter(pk => String(pk.user_id) === String(userId));
+        return [results];
+      }
+
+      if (normalizedSql.includes('select') && normalizedSql.includes('from userpasskeys')) {
+        return [memoryDb.UserPasskeys];
+      }
+
+      if (normalizedSql.startsWith('update userpasskeys set counter =')) {
+        const [counter, id] = params;
+        const pk = memoryDb.UserPasskeys.find(p => String(p.id) === String(id));
+        if (pk) {
+          pk.counter = counter;
+        }
+        return [{ affectedRows: pk ? 1 : 0 }];
+      }
+
+      if (normalizedSql.startsWith('delete from userpasskeys where id =')) {
+        const [id, userId] = params;
+        const initialLen = memoryDb.UserPasskeys.length;
+        memoryDb.UserPasskeys = memoryDb.UserPasskeys.filter(
+          p => !(String(p.id) === String(id) && (!userId || String(p.user_id) === String(userId)))
+        );
+        return [{ affectedRows: initialLen - memoryDb.UserPasskeys.length }];
       }
 
       // 2. INSERT INTO Users
@@ -633,6 +693,54 @@ const mockPool = {
         return [results];
       }
 
+      // 22. UserPasskeys queries
+      if (normalizedSql.includes('select * from userpasskeys where user_id =')) {
+        const userId = params[0];
+        const results = memoryDb.UserPasskeys.filter(p => String(p.user_id) === String(userId));
+        return [results];
+      }
+
+      if (normalizedSql.includes('select * from userpasskeys where credential_id =')) {
+        const credId = params[0];
+        const results = memoryDb.UserPasskeys.filter(p => String(p.credential_id) === String(credId));
+        return [results];
+      }
+
+      if (normalizedSql.startsWith('insert into userpasskeys')) {
+        const [user_id, credential_id, public_key, counter, transports, device_name] = params;
+        const id = nextIds.UserPasskeys++;
+        const newPasskey = {
+          id,
+          user_id,
+          credential_id,
+          public_key,
+          counter: counter || 0,
+          transports: transports || 'internal',
+          device_name: device_name || 'Passkey / Biometrics',
+          created_at: new Date()
+        };
+        memoryDb.UserPasskeys.push(newPasskey);
+        return [{ insertId: id }];
+      }
+
+      if (normalizedSql.includes('update userpasskeys set counter =')) {
+        const [counter, credId] = params;
+        const pk = memoryDb.UserPasskeys.find(p => String(p.credential_id) === String(credId));
+        if (pk) pk.counter = counter;
+        return [{ affectedRows: 1 }];
+      }
+
+      if (normalizedSql.includes('delete from userpasskeys where id =') && normalizedSql.includes('user_id =')) {
+        const [id, userId] = params;
+        const idx = memoryDb.UserPasskeys.findIndex(p => String(p.id) === String(id) && String(p.user_id) === String(userId));
+        if (idx !== -1) memoryDb.UserPasskeys.splice(idx, 1);
+        return [{ affectedRows: 1 }];
+      }
+
+      if (normalizedSql.includes('from userpasskeys')) {
+        return [memoryDb.UserPasskeys];
+      }
+
       console.warn('Unhandled mock query:', sql, params);
       return [[]];
     } catch (err) {
@@ -773,6 +881,20 @@ async function initSchema(p) {
         manager_email VARCHAR(255),
         message TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS UserPasskeys (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        credential_id VARCHAR(500) NOT NULL UNIQUE,
+        public_key TEXT NOT NULL,
+        counter BIGINT NOT NULL DEFAULT 0,
+        transports VARCHAR(255),
+        device_name VARCHAR(255) DEFAULT 'Security Key / Biometrics',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
       )
     `);
 
