@@ -86,7 +86,7 @@ exports.getProviderLocations = async (req, res) => {
     // Attach services to each location
     const locationsWithServices = locations.map(loc => {
       const locServices = services
-        .filter(s => s.location_id === loc.id || !s.location_id)
+        .filter(s => String(s.location_id) === String(loc.id) || !s.location_id)
         .map(s => s.service_type);
       return {
         ...loc,
@@ -116,7 +116,7 @@ exports.addProviderLocation = async (req, res) => {
     if (providers.length === 0) {
       const [newProv] = await pool.query(
         'INSERT INTO OHProviders (user_id, company_name, contact_person, phone, is_subscribed) VALUES (?, ?, ?, ?, ?)',
-        [userId, 'OH Provider Practice', 'Clinic Lead', '', true]
+        [userId, 'OH Provider Practice', 'Clinic Lead', '', false]
       );
       providerId = newProv.insertId;
     } else {

@@ -1,4 +1,14 @@
+const { Pool: PgPool } = require('pg');
 const mysql = require('mysql2/promise');
+
+function isPostgresConfigured() {
+  const url = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_DB_URL || '';
+  return url.startsWith('postgres://') || url.startsWith('postgresql://');
+}
+
+function getDatabaseUrl() {
+  return process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL || process.env.SUPABASE_DB_URL || '';
+}
 
 function getSSLConfig() {
   if (process.env.DB_SSL === 'false') {
@@ -7,15 +17,9 @@ function getSSLConfig() {
   const ssl = {
     rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED === 'true'
   };
-  if (process.env.DB_SSL_CA) {
-    ssl.ca = process.env.DB_SSL_CA;
-  }
-  if (process.env.DB_SSL_CERT) {
-    ssl.cert = process.env.DB_SSL_CERT;
-  }
-  if (process.env.DB_SSL_KEY) {
-    ssl.key = process.env.DB_SSL_KEY;
-  }
+  if (process.env.DB_SSL_CA) ssl.ca = process.env.DB_SSL_CA;
+  if (process.env.DB_SSL_CERT) ssl.cert = process.env.DB_SSL_CERT;
+  if (process.env.DB_SSL_KEY) ssl.key = process.env.DB_SSL_KEY;
   return ssl;
 }
 
@@ -37,7 +41,21 @@ if (sslConfig) {
 }
 
 let realPool = null;
+let pgPool = null;
 let useMock = process.env.DB_HOST === 'force_mock_db';
+let dbEngineType = 'in-memory'; // 'supabase', 'mysql', 'in-memory'
+let schemaInitialized = false;
+
+// Convert MySQL SQL with '?' parameters to PostgreSQL '$1, $2...' format
+function convertSqlForPostgres(sql) {
+  let paramIndex = 1;
+  let converted = sql.replace(/\?/g, () => '$' + (paramIndex++));
+  const trimmed = converted.trim();
+  if (/^insert\s+into/i.test(trimmed) && !/returning/i.test(trimmed)) {
+    converted = trimmed + ' RETURNING id';
+  }
+  return converted;
+}
 
 // In-memory database representation
 const memoryDb = {
@@ -74,13 +92,27 @@ const nextIds = {
   UserPasskeys: 1
 };
 
+// Calculate spatial distance between two coordinate pairs using Haversine formula
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 3959; // Earth radius in miles
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 const mockPool = {
   async query(sql, params = []) {
     const normalizedSql = sql.trim().replace(/\s+/g, ' ').toLowerCase();
 
     try {
       // 1. SELECT * FROM Users WHERE email = ?
-      // 1. SELECT * FROM Users WHERE email = ? (case-insensitive)
       if (normalizedSql.includes('select') && normalizedSql.includes('from users where') && (normalizedSql.includes('email =') || normalizedSql.includes('email) ='))) {
         const email = String(params[0]).trim().toLowerCase();
         const results = memoryDb.Users.filter(u => String(u.email).trim().toLowerCase() === email).map(u => ({
@@ -152,366 +184,106 @@ const mockPool = {
       }
 
       if (normalizedSql.startsWith('delete from userpasskeys where id =')) {
-        const [id, userId] = params;
-        const initialLen = memoryDb.UserPasskeys.length;
-        memoryDb.UserPasskeys = memoryDb.UserPasskeys.filter(
-          p => !(String(p.id) === String(id) && (!userId || String(p.user_id) === String(userId)))
-        );
-        return [{ affectedRows: initialLen - memoryDb.UserPasskeys.length }];
+        const [id, user_id] = params;
+        memoryDb.UserPasskeys = memoryDb.UserPasskeys.filter(p => !(String(p.id) === String(id) && String(p.user_id) === String(user_id)));
+        return [{ affectedRows: 1 }];
       }
 
       // 2. INSERT INTO Users
-      
-      // UPDATE Users
-      if (normalizedSql.startsWith('update users set password =') || normalizedSql.includes('update users set password =')) {
-        const [password, user_type, id] = params;
-        const user = memoryDb.Users.find(u => String(u.id) === String(id));
-        if (user) {
-          user.password = password;
-          user.user_type = user_type;
-          user.userType = user_type;
-        }
-        return [{ affectedRows: user ? 1 : 0 }];
-      }
-
-      if (normalizedSql.startsWith('update users set user_type =')) {
-        const [user_type, id] = params;
-        const user = memoryDb.Users.find(u => String(u.id) === String(id));
-        if (user) {
-          user.user_type = user_type;
-        }
-        return [{ affectedRows: user ? 1 : 0 }];
-      }
-
       if (normalizedSql.startsWith('insert into users')) {
         const [email, password, user_type] = params;
         const id = nextIds.Users++;
-        const newUser = { id, email, password, user_type, created_at: new Date() };
+        const newUser = {
+          id,
+          email,
+          password,
+          user_type,
+          userType: user_type,
+          created_at: new Date().toISOString()
+        };
         memoryDb.Users.push(newUser);
         return [{ insertId: id }];
       }
 
-      // 3. INSERT INTO Businesses
-      if (normalizedSql.startsWith('insert into businesses')) {
+      // UPDATE Users
+      if (normalizedSql.startsWith('update users set')) {
+        const id = params[params.length - 1];
+        const user = memoryDb.Users.find(u => String(u.id) === String(id));
+        if (user) {
+          if (params.length === 2 && normalizedSql.includes('user_type = ?')) {
+            user.user_type = params[0];
+            user.userType = params[0];
+          } else if (params.length === 3 && normalizedSql.includes('password = ?')) {
+            user.password = params[0];
+            user.user_type = params[1];
+            user.userType = params[1];
+          }
+        }
+        return [{ affectedRows: user ? 1 : 0 }];
+      }
+
+      // 3. Businesses handlers
+      if (/^insert\s+into\s+businesses\b/i.test(normalizedSql)) {
         const [user_id, company_name, contact_person, phone] = params;
         const id = nextIds.Businesses++;
-        const newBiz = { id, user_id, company_name, contact_person, phone };
+        const newBiz = { 
+          id, 
+          user_id: Number(user_id), 
+          company_name: company_name || '', 
+          contact_person: contact_person || '', 
+          phone: phone || '', 
+          created_at: new Date().toISOString() 
+        };
         memoryDb.Businesses.push(newBiz);
         return [{ insertId: id }];
       }
 
-      // 4. SELECT FROM Businesses WHERE user_id = ?
-      if (normalizedSql.includes('select') && normalizedSql.includes('from businesses where user_id')) {
-        const userId = params[0];
-        const results = memoryDb.Businesses.filter(b => b.user_id === userId);
-        return [results];
-      }
-
-      // 5. INSERT INTO BusinessLocations
-      if (normalizedSql.startsWith('insert into businesslocations')) {
-        const id = nextIds.BusinessLocations++;
-        const newLoc = {
-          id,
-          business_id: params[0],
-          address: params[1],
-          city: params[2],
-          state: params[3],
-          country: params[4],
-          postal_code: params[5],
-          employee_count: params[6],
-          latitude: params[7] !== undefined ? params[7] : null,
-          longitude: params[8] !== undefined ? params[8] : null
-        };
-        memoryDb.BusinessLocations.push(newLoc);
-        return [{ insertId: id }];
-      }
-
-      // SELECT * FROM BusinessLocations WHERE business_id = ?
-      if (normalizedSql.includes('select * from businesslocations where business_id')) {
-        const businessId = params[0];
-        const results = memoryDb.BusinessLocations.filter(loc => String(loc.business_id) === String(businessId));
-        return [results];
-      }
-
-      // UPDATE BusinessLocations
-      if (normalizedSql.startsWith('update businesslocations set')) {
-        const [address, city, state, country, postal_code, employee_count, latitude, longitude, id, business_id] = params;
-        const loc = memoryDb.BusinessLocations.find(l => String(l.id) === String(id) && (!business_id || String(l.business_id) === String(business_id)));
-        if (loc) {
-          loc.address = address;
-          loc.city = city;
-          loc.state = state;
-          loc.country = country;
-          loc.postal_code = postal_code;
-          loc.employee_count = employee_count;
-          if (latitude !== null && latitude !== undefined) loc.latitude = latitude;
-          if (longitude !== null && longitude !== undefined) loc.longitude = longitude;
+      if (/^update\s+businesses\b/i.test(normalizedSql)) {
+        const [company_name, contact_person, phone, id] = params;
+        const biz = memoryDb.Businesses.find(b => String(b.id) === String(id));
+        if (biz) {
+          biz.company_name = company_name;
+          biz.contact_person = contact_person;
+          biz.phone = phone;
         }
-        return [{ affectedRows: loc ? 1 : 0 }];
+        return [{ affectedRows: biz ? 1 : 0 }];
       }
 
-      // DELETE FROM BusinessLocations
-      if (normalizedSql.startsWith('delete from businesslocations')) {
+      if (/\bfrom\s+businesses\b/i.test(normalizedSql) && normalizedSql.includes('user_id =')) {
+        const userId = params[0];
+        const results = memoryDb.Businesses.filter(b => String(b.user_id) === String(userId));
+        return [results];
+      }
+
+      if (/\bfrom\s+businesses\b/i.test(normalizedSql) && normalizedSql.includes('where id =')) {
         const id = params[0];
-        memoryDb.BusinessLocations = memoryDb.BusinessLocations.filter(loc => String(loc.id) !== String(id));
-        return [{ affectedRows: 1 }];
+        const results = memoryDb.Businesses.filter(b => String(b.id) === String(id));
+        return [results];
       }
 
-      // 6. INSERT INTO OHProviders
-      if (normalizedSql.startsWith('insert into ohproviders ') || normalizedSql.startsWith('insert into ohproviders(')) {
-        const [user_id, company_name, contact_person, phone] = params;
+      if (/\bfrom\s+businesses\b/i.test(normalizedSql)) {
+        return [memoryDb.Businesses];
+      }
+
+      // 4. OHProviders handlers
+      if (/^insert\s+into\s+ohproviders\b/i.test(normalizedSql)) {
+        const [user_id, company_name, contact_person, phone, is_subscribed] = params;
         const id = nextIds.OHProviders++;
-        const newProv = { id, user_id, company_name, contact_person, phone, is_subscribed: false, subscription_expiry: null };
+        const newProv = { 
+          id, 
+          user_id: Number(user_id), 
+          company_name: company_name || '', 
+          contact_person: contact_person || '', 
+          phone: phone || '', 
+          is_subscribed: Boolean(is_subscribed),
+          subscription_expiry: null,
+          created_at: new Date().toISOString() 
+        };
         memoryDb.OHProviders.push(newProv);
         return [{ insertId: id }];
       }
 
-      // 7. SELECT FROM OHProviders WHERE user_id = ?
-      if (normalizedSql.includes('from ohproviders where user_id =') || normalizedSql.includes('from ohproviders where user_id=')) {
-        const userId = params[0];
-        const results = memoryDb.OHProviders.filter(p => String(p.user_id) === String(userId));
-        return [results];
-      }
-
-      // 8. INSERT INTO OHProviderLocations
-      if (normalizedSql.startsWith('insert into ohproviderlocations')) {
-        const id = nextIds.OHProviderLocations++;
-        const newLoc = {
-          id,
-          provider_id: params[0],
-          address: params[1],
-          city: params[2],
-          state: params[3],
-          country: params[4],
-          postal_code: params[5],
-          coverage_radius: params[6],
-          latitude: params[7] !== undefined ? params[7] : null,
-          longitude: params[8] !== undefined ? params[8] : null
-        };
-        memoryDb.OHProviderLocations.push(newLoc);
-        return [{ insertId: id }];
-      }
-
-      // 9. INSERT INTO OHProviderServices
-      if (normalizedSql.startsWith('insert into ohproviderservices')) {
-        const id = nextIds.OHProviderServices++;
-        let provider_id, location_id, service_type;
-        if (params.length === 3) {
-          [provider_id, location_id, service_type] = params;
-        } else {
-          [provider_id, service_type] = params;
-          location_id = null;
-        }
-        const newServ = { id, provider_id, location_id, service_type };
-        memoryDb.OHProviderServices.push(newServ);
-        return [{ insertId: id }];
-      }
-
-      // SELECT * FROM OHProviderLocations WHERE provider_id = ?
-      if (normalizedSql.includes('select * from ohproviderlocations where provider_id')) {
-        const providerId = params[0];
-        const results = memoryDb.OHProviderLocations.filter(loc => String(loc.provider_id) === String(providerId));
-        return [results];
-      }
-
-      // SELECT * FROM OHProviderServices WHERE provider_id = ?
-      if (normalizedSql.includes('select * from ohproviderservices where provider_id')) {
-        const providerId = params[0];
-        const results = memoryDb.OHProviderServices.filter(s => String(s.provider_id) === String(providerId));
-        return [results];
-      }
-
-      // DELETE FROM OHProviderLocations
-      if (normalizedSql.startsWith('delete from ohproviderlocations')) {
-        const id = params[0];
-        memoryDb.OHProviderLocations = memoryDb.OHProviderLocations.filter(loc => String(loc.id) !== String(id));
-        return [{ affectedRows: 1 }];
-      }
-
-      // DELETE FROM OHProviderServices
-      if (normalizedSql.startsWith('delete from ohproviderservices')) {
-        const locId = params[0];
-        memoryDb.OHProviderServices = memoryDb.OHProviderServices.filter(s => String(s.location_id) !== String(locId));
-        return [{ affectedRows: 1 }];
-      }
-
-      // 10. INSERT INTO Referrals
-      if (normalizedSql.startsWith('insert into referrals')) {
-        let business_id, business_location_id, service_type, employee_count, contact_name, contact_email, contact_phone, notes, status;
-        if (params.length === 9) {
-          [business_id, business_location_id, service_type, employee_count, contact_name, contact_email, contact_phone, notes, status] = params;
-        } else if (params.length === 8) {
-          [business_id, business_location_id, service_type, contact_name, contact_email, contact_phone, notes, status] = params;
-          employee_count = 1;
-        } else if (params.length === 4) {
-          [business_id, business_location_id, service_type, status] = params;
-          employee_count = 1;
-          contact_name = null;
-          contact_email = null;
-          contact_phone = null;
-          notes = null;
-        } else {
-          [business_id, business_location_id, service_type] = params;
-          employee_count = 1;
-          status = 'pending';
-        }
-        const id = nextIds.Referrals++;
-        const newRef = { 
-          id, 
-          business_id, 
-          business_location_id, 
-          service_type, 
-          employee_count: parseInt(employee_count, 10) || 1,
-          contact_name: contact_name || '', 
-          contact_email: contact_email || '', 
-          contact_phone: contact_phone || '', 
-          notes: notes || '', 
-          status: status || 'pending', 
-          created_at: new Date() 
-        };
-        memoryDb.Referrals.push(newRef);
-        return [{ insertId: id }];
-      }
-
-      // 11. SELECT * FROM BusinessLocations WHERE id = ?
-      if (normalizedSql.includes('select * from businesslocations where id =')) {
-        const id = params[0];
-        const results = memoryDb.BusinessLocations.filter(loc => loc.id === id);
-        return [results];
-      }
-
-      // 12. JOIN query for OHProviderLocations and Providers
-      if (
-        normalizedSql.includes('from ohproviderlocations opl join ohproviders') ||
-        normalizedSql.includes('from ohproviderlocations opl')
-      ) {
-        if (params.length > 0) {
-          const serviceType = params[0];
-          const matchingServices = memoryDb.OHProviderServices.filter(s => s.service_type === serviceType);
-          const results = [];
-          for (const s of matchingServices) {
-            const locations = s.location_id 
-              ? memoryDb.OHProviderLocations.filter(loc => String(loc.id) === String(s.location_id))
-              : memoryDb.OHProviderLocations.filter(loc => String(loc.provider_id) === String(s.provider_id));
-
-            const provider = memoryDb.OHProviders.find(p => String(p.id) === String(s.provider_id));
-            for (const loc of locations) {
-              if (!results.some(r => r.location_id === loc.id && r.provider_id === loc.provider_id)) {
-                results.push({
-                  location_id: loc.id,
-                  provider_id: loc.provider_id,
-                  latitude: loc.latitude,
-                  longitude: loc.longitude,
-                  coverage_radius: loc.coverage_radius,
-                  company_name: provider ? provider.company_name : '',
-                  contact_person: provider ? provider.contact_person : '',
-                  phone: provider ? provider.phone : '',
-                  is_subscribed: provider ? provider.is_subscribed : false
-                });
-              }
-            }
-          }
-          return [results];
-        }
-
-        // When no params, return all provider locations with provider details
-        const results = memoryDb.OHProviderLocations.map(loc => {
-          const provider = memoryDb.OHProviders.find(p => String(p.id) === String(loc.provider_id));
-          return {
-            location_id: loc.id,
-            provider_id: loc.provider_id,
-            latitude: loc.latitude,
-            longitude: loc.longitude,
-            coverage_radius: loc.coverage_radius,
-            company_name: provider ? provider.company_name : '',
-            contact_person: provider ? provider.contact_person : '',
-            phone: provider ? provider.phone : '',
-            is_subscribed: provider ? provider.is_subscribed : false
-          };
-        });
-        return [results];
-      }
-
-      // SELECT all from OHProviderServices
-      if (normalizedSql.includes('from ohproviderservices') && !normalizedSql.includes('where')) {
-        return [memoryDb.OHProviderServices];
-      }
-
-      // 13. UPDATE Referrals
-      if (normalizedSql.startsWith('update referrals set')) {
-        if (normalizedSql.includes('employee_count')) {
-          const [business_location_id, service_type, employee_count, contact_name, contact_email, contact_phone, notes, status, id] = params;
-          const ref = memoryDb.Referrals.find(r => String(r.id) === String(id));
-          if (ref) {
-            ref.business_location_id = business_location_id;
-            ref.service_type = service_type;
-            ref.employee_count = parseInt(employee_count, 10) || 1;
-            ref.contact_name = contact_name;
-            ref.contact_email = contact_email;
-            ref.contact_phone = contact_phone;
-            ref.notes = notes;
-            ref.status = status;
-          }
-          return [{ affectedRows: ref ? 1 : 0 }];
-        }
-        if (normalizedSql.includes('contact_name') || normalizedSql.includes('notes')) {
-          const [business_location_id, service_type, contact_name, contact_email, contact_phone, notes, status, id] = params;
-          const ref = memoryDb.Referrals.find(r => String(r.id) === String(id));
-          if (ref) {
-            ref.business_location_id = business_location_id;
-            ref.service_type = service_type;
-            ref.contact_name = contact_name;
-            ref.contact_email = contact_email;
-            ref.contact_phone = contact_phone;
-            ref.notes = notes;
-            ref.status = status;
-          }
-          return [{ affectedRows: ref ? 1 : 0 }];
-        }
-        if (normalizedSql.includes('business_location_id') && normalizedSql.includes('service_type')) {
-          const [business_location_id, service_type, status, id] = params;
-          const ref = memoryDb.Referrals.find(r => String(r.id) === String(id));
-          if (ref) {
-            ref.business_location_id = business_location_id;
-            ref.service_type = service_type;
-            ref.status = status;
-          }
-          return [{ affectedRows: ref ? 1 : 0 }];
-        }
-        const [status, id] = params;
-        const ref = memoryDb.Referrals.find(r => String(r.id) === String(id));
-        if (ref) {
-          ref.status = status;
-        }
-        return [{ affectedRows: ref ? 1 : 0 }];
-      }
-
-      // DELETE FROM Referrals
-      if (normalizedSql.startsWith('delete from referrals')) {
-        const id = params[0];
-        memoryDb.Referrals = memoryDb.Referrals.filter(r => String(r.id) !== String(id));
-        memoryDb.ReferralMatches = memoryDb.ReferralMatches.filter(m => String(m.referral_id) !== String(id));
-        return [{ affectedRows: 1 }];
-      }
-
-      // DELETE FROM ReferralMatches
-      if (normalizedSql.startsWith('delete from referralmatches')) {
-        const referralId = params[0];
-        memoryDb.ReferralMatches = memoryDb.ReferralMatches.filter(m => String(m.referral_id) !== String(referralId));
-        return [{ affectedRows: 1 }];
-      }
-
-      // UPDATE OHProviders
-      if (normalizedSql.startsWith('update ohproviders set')) {
-        if (normalizedSql.includes('is_subscribed')) {
-          const [is_subscribed, subscription_expiry, id] = params;
-          const prov = memoryDb.OHProviders.find(p => String(p.id) === String(id));
-          if (prov) {
-            prov.is_subscribed = Boolean(is_subscribed);
-            prov.subscription_expiry = subscription_expiry;
-          }
-          return [{ affectedRows: prov ? 1 : 0 }];
-        }
+      if (/^update\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('company_name =')) {
         const [company_name, contact_person, phone, id] = params;
         const prov = memoryDb.OHProviders.find(p => String(p.id) === String(id));
         if (prov) {
@@ -522,428 +294,513 @@ const mockPool = {
         return [{ affectedRows: prov ? 1 : 0 }];
       }
 
-      // UPDATE Businesses
-      if (normalizedSql.startsWith('update businesses set')) {
-        const [company_name, contact_person, phone, id] = params;
-        const biz = memoryDb.Businesses.find(b => b.id === id);
-        if (biz) {
-          biz.company_name = company_name;
-          biz.contact_person = contact_person;
-          biz.phone = phone;
+      if (/^update\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('is_subscribed =')) {
+        const [is_subscribed, subscription_expiry, id] = params;
+        const prov = memoryDb.OHProviders.find(p => String(p.id) === String(id));
+        if (prov) {
+          prov.is_subscribed = Boolean(is_subscribed);
+          prov.subscription_expiry = subscription_expiry;
         }
-        return [{ affectedRows: biz ? 1 : 0 }];
+        return [{ affectedRows: prov ? 1 : 0 }];
       }
 
-      // 14. INSERT INTO ReferralMatches
-      if (normalizedSql.startsWith('insert into referralmatches')) {
-        const [referral_id, provider_id, status] = params;
-        const id = nextIds.ReferralMatches++;
-        const newMatch = { id, referral_id, provider_id, status: status || 'pending', created_at: new Date() };
-        memoryDb.ReferralMatches.push(newMatch);
-        return [{ insertId: id }];
-      }
-
-      // 15. SELECT Referrals for Business
-      if (
-        normalizedSql.includes('where r.business_id =') ||
-        normalizedSql.includes('select * from referrals where business_id =')
-      ) {
-        const businessId = params[0];
-        const results = memoryDb.Referrals
-          .filter(ref => String(ref.business_id) === String(businessId))
-          .map(ref => {
-            const loc = memoryDb.BusinessLocations.find(l => String(l.id) === String(ref.business_location_id));
-            const matches = memoryDb.ReferralMatches.filter(m => String(m.referral_id) === String(ref.id));
-            const selectedMatches = matches.filter(m => m.status === 'selected' || m.status === 'accepted');
-            const selected_providers = selectedMatches.map(m => {
-              const op = memoryDb.OHProviders.find(p => String(p.id) === String(m.provider_id));
-              const u = op ? memoryDb.Users.find(user => String(user.id) === String(op.user_id)) : null;
-              return {
-                provider_id: m.provider_id,
-                company_name: op ? op.company_name : 'Provider Clinic',
-                contact_person: op ? op.contact_person : 'Clinician',
-                phone: op ? op.phone : '',
-                email: u ? u.email : ''
-              };
-            });
-            const selected_provider = selected_providers.length > 0 ? selected_providers[0] : null;
-            const provider_name = selected_providers.length > 0
-              ? selected_providers.map(p => p.company_name).join(', ')
-              : null;
-            
-            const interested_providers = matches.map(m => {
-              const op = memoryDb.OHProviders.find(p => String(p.id) === String(m.provider_id));
-              const u = op ? memoryDb.Users.find(user => String(user.id) === String(op.user_id)) : null;
-              return {
-                match_id: m.id,
-                provider_id: m.provider_id,
-                company_name: op ? op.company_name : 'Provider Clinic',
-                contact_person: op ? op.contact_person : 'Clinician',
-                phone: op ? op.phone : '',
-                email: u ? u.email : '',
-                status: m.status,
-                distance: 2.06
-              };
-            });
-
-            return {
-              ...ref,
-              location_address: loc ? loc.address : '',
-              location_city: loc ? loc.city : '',
-              location_postcode: loc ? loc.postal_code : '',
-              provider_name,
-              selected_provider,
-              selected_providers,
-              interested_providers
-            };
-          });
+      if (/\bfrom\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('user_id =')) {
+        const userId = params[0];
+        const results = memoryDb.OHProviders.filter(p => String(p.user_id) === String(userId));
         return [results];
       }
 
-      // 16. SELECT * FROM Referrals WHERE id = ?
-      if (normalizedSql.includes('select * from referrals where id =')) {
-        const id = params[0];
-        const results = memoryDb.Referrals.filter(ref => String(ref.id) === String(id));
-        return [results];
-      }
-
-      // SELECT * FROM Referrals WHERE status = ?
-      if (normalizedSql.includes('select * from referrals where status =')) {
-        const status = params.length > 0 ? params[0] : (normalizedSql.includes("'pending'") ? 'pending' : (normalizedSql.includes("'matched'") ? 'matched' : ''));
-        const results = memoryDb.Referrals.filter(ref => ref.status === status);
-        return [results];
-      }
-
-      // SELECT * FROM Referrals (all)
-      if (normalizedSql.includes('select * from referrals') && !normalizedSql.includes('where')) {
-        return [memoryDb.Referrals];
-      }
-
-      // UPDATE ReferralMatches
-      if (normalizedSql.startsWith('update referralmatches set')) {
-        if (normalizedSql.includes('where id =')) {
-          const [status, id] = params;
-          const match = memoryDb.ReferralMatches.find(m => String(m.id) === String(id));
-          if (match) {
-            match.status = status;
-          }
-          return [{ affectedRows: match ? 1 : 0 }];
-        }
-        if (normalizedSql.includes('where referral_id =') && normalizedSql.includes('and provider_id !=')) {
-          const [status, referral_id, provider_id] = params;
-          memoryDb.ReferralMatches.forEach(m => {
-            if (String(m.referral_id) === String(referral_id) && String(m.provider_id) !== String(provider_id)) {
-              m.status = status;
-            }
-          });
-          return [{ affectedRows: 1 }];
-        }
-        if (normalizedSql.includes('where referral_id =') && normalizedSql.includes('and provider_id =')) {
-          const [status, referral_id, provider_id] = params;
-          const match = memoryDb.ReferralMatches.find(m => String(m.referral_id) === String(referral_id) && String(m.provider_id) === String(provider_id));
-          if (match) {
-            match.status = status;
-          }
-          return [{ affectedRows: match ? 1 : 0 }];
-        }
-        if (normalizedSql.includes('where referral_id =')) {
-          const [provider_id, status, referral_id] = params;
-          const match = memoryDb.ReferralMatches.find(m => String(m.referral_id) === String(referral_id));
-          if (match) {
-            match.provider_id = provider_id;
-            match.status = status;
-          }
-          return [{ affectedRows: match ? 1 : 0 }];
-        }
-      }
-
-      // 19. SELECT * FROM ReferralMatches WHERE referral_id = ? AND provider_id = ?
-      if (normalizedSql.includes('select * from referralmatches where referral_id =') && normalizedSql.includes('provider_id =')) {
-        const [referral_id, provider_id] = params;
-        const results = memoryDb.ReferralMatches.filter(m => String(m.referral_id) === String(referral_id) && String(m.provider_id) === String(provider_id));
-        return [results];
-      }
-
-      // 17. SELECT * FROM ReferralMatches WHERE referral_id = ?
-      if (
-        normalizedSql.includes('from referralmatches rm join ohproviders op') ||
-        (normalizedSql.includes('from referralmatches') && normalizedSql.includes('join ohproviders'))
-      ) {
-        const referralId = params[0];
-        const matches = memoryDb.ReferralMatches.filter(m => String(m.referral_id) === String(referralId));
-        const results = matches.map(m => {
-          const prov = memoryDb.OHProviders.find(p => String(p.id) === String(m.provider_id));
-          const user = prov ? memoryDb.Users.find(u => String(u.id) === String(prov.user_id)) : null;
-          return {
-            match_id: m.id,
-            match_status: m.status,
-            match_created_at: m.created_at,
-            provider_id: m.provider_id,
-            company_name: prov ? prov.company_name : 'Apex Clinic',
-            contact_person: prov ? prov.contact_person : 'Clinician',
-            phone: prov ? prov.phone : '020 7123 4567',
-            provider_email: user ? user.email : 'provider@apexcorp.co.uk'
-          };
-        });
-        return [results];
-      }
-
-      if (normalizedSql.includes('select * from referralmatches where referral_id =')) {
-        const referralId = params[0];
-        const results = memoryDb.ReferralMatches.filter(m => String(m.referral_id) === String(referralId));
-        return [results];
-      }
-
-      // 20. SELECT * FROM OHProviders WHERE id = ?
-      if (normalizedSql.includes('from ohproviders where id =') || normalizedSql.includes('from ohproviders where id=')) {
+      if (/\bfrom\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('where id =')) {
         const id = params[0];
         const results = memoryDb.OHProviders.filter(p => String(p.id) === String(id));
         return [results];
       }
 
-      if (normalizedSql.includes('from ohproviders') && !normalizedSql.includes('where')) {
+      if (/\bfrom\s+ohproviders\b/i.test(normalizedSql)) {
         return [memoryDb.OHProviders];
       }
 
-      // 21. JOIN for listReferrals for provider
-      if (normalizedSql.includes('from referrals r join referralmatches rm on r.id = rm.referral_id')) {
-        const providerId = params[0];
-        const results = [];
-        const matches = memoryDb.ReferralMatches.filter(m => String(m.provider_id) === String(providerId));
-        for (const m of matches) {
-          const ref = memoryDb.Referrals.find(r => String(r.id) === String(m.referral_id));
-          if (ref) {
-            const biz = memoryDb.Businesses.find(b => String(b.id) === String(ref.business_id));
-            const bizLoc = memoryDb.BusinessLocations.find(l => String(l.id) === String(ref.business_location_id));
-            
-            // Mask contact details unless provider is chosen/selected by business
-            const isSelected = m.status === 'selected' || m.status === 'accepted';
-            results.push({
-              ...ref,
-              company_name: isSelected ? (biz ? biz.company_name : '') : null,
-              contact_person: isSelected ? (ref.contact_name || (biz ? biz.contact_person : '')) : null,
-              contact_name: isSelected ? (ref.contact_name || (biz ? biz.contact_person : '')) : null,
-              contact_email: isSelected ? (ref.contact_email || '') : null,
-              contact_phone: isSelected ? (ref.contact_phone || (biz ? biz.phone : '')) : null,
-              notes: isSelected ? (ref.notes || '') : null,
-              distance: 2.06,
-              match_status: m.status,
-              postal_code: bizLoc ? bizLoc.postal_code : ''
-            });
-          }
-        }
-        return [results];
-      }
-
-      // 22. UserPasskeys queries
-      if (normalizedSql.includes('select * from userpasskeys where user_id =')) {
-        const userId = params[0];
-        const results = memoryDb.UserPasskeys.filter(p => String(p.user_id) === String(userId));
-        return [results];
-      }
-
-      if (normalizedSql.includes('select * from userpasskeys where credential_id =')) {
-        const credId = params[0];
-        const results = memoryDb.UserPasskeys.filter(p => String(p.credential_id) === String(credId));
-        return [results];
-      }
-
-      if (normalizedSql.startsWith('insert into userpasskeys')) {
-        const [user_id, credential_id, public_key, counter, transports, device_name] = params;
-        const id = nextIds.UserPasskeys++;
-        const newPasskey = {
-          id,
-          user_id,
-          credential_id,
-          public_key,
-          counter: counter || 0,
-          transports: transports || 'internal',
-          device_name: device_name || 'Passkey / Biometrics',
-          created_at: new Date()
+      // 5. BusinessLocations handlers
+      if (/^insert\s+into\s+businesslocations\b/i.test(normalizedSql)) {
+        const [business_id, address, city, state, country, postal_code, employee_count, latitude, longitude] = params;
+        const id = nextIds.BusinessLocations++;
+        const newLoc = { 
+          id, 
+          business_id: Number(business_id), 
+          address: address || '', 
+          city: city || '', 
+          state: state || '', 
+          country: country || 'United Kingdom', 
+          postal_code: postal_code || '', 
+          employee_count: employee_count || '11-50', 
+          latitude: latitude !== undefined && latitude !== null ? Number(latitude) : null, 
+          longitude: longitude !== undefined && longitude !== null ? Number(longitude) : null, 
+          created_at: new Date().toISOString() 
         };
-        memoryDb.UserPasskeys.push(newPasskey);
+        memoryDb.BusinessLocations.push(newLoc);
         return [{ insertId: id }];
       }
 
-      if (normalizedSql.includes('update userpasskeys set counter =')) {
-        const [counter, credId] = params;
-        const pk = memoryDb.UserPasskeys.find(p => String(p.credential_id) === String(credId));
-        if (pk) pk.counter = counter;
+      if (/^update\s+businesslocations\b/i.test(normalizedSql) && normalizedSql.includes('address =')) {
+        const [address, city, state, country, postal_code, employee_count, latitude, longitude, id, business_id] = params;
+        const loc = memoryDb.BusinessLocations.find(l => String(l.id) === String(id) && (!business_id || String(l.business_id) === String(business_id)));
+        if (loc) {
+          loc.address = address;
+          loc.city = city;
+          loc.state = state;
+          loc.country = country;
+          loc.postal_code = postal_code;
+          loc.employee_count = employee_count;
+          loc.latitude = latitude !== undefined && latitude !== null ? Number(latitude) : null;
+          loc.longitude = longitude !== undefined && longitude !== null ? Number(longitude) : null;
+        }
+        return [{ affectedRows: loc ? 1 : 0 }];
+      }
+
+      if (/^update\s+businesslocations\b/i.test(normalizedSql) && normalizedSql.includes('latitude =')) {
+        const [latitude, longitude, id] = params;
+        const loc = memoryDb.BusinessLocations.find(l => String(l.id) === String(id));
+        if (loc) {
+          loc.latitude = latitude !== undefined && latitude !== null ? Number(latitude) : null;
+          loc.longitude = longitude !== undefined && longitude !== null ? Number(longitude) : null;
+        }
+        return [{ affectedRows: loc ? 1 : 0 }];
+      }
+
+      if (/\bfrom\s+businesslocations\b/i.test(normalizedSql) && normalizedSql.includes('business_id =')) {
+        const businessId = params[0];
+        const results = memoryDb.BusinessLocations.filter(l => String(l.business_id) === String(businessId));
+        return [results];
+      }
+
+      if (/\bfrom\s+businesslocations\b/i.test(normalizedSql) && normalizedSql.includes('where id =')) {
+        const id = params[0];
+        const results = memoryDb.BusinessLocations.filter(l => String(l.id) === String(id));
+        return [results];
+      }
+
+      if (/\bfrom\s+businesslocations\b/i.test(normalizedSql)) {
+        return [memoryDb.BusinessLocations];
+      }
+
+      if (/^delete\s+from\s+businesslocations\b/i.test(normalizedSql)) {
+        const [id, business_id] = params;
+        memoryDb.BusinessLocations = memoryDb.BusinessLocations.filter(l => !(String(l.id) === String(id) && String(l.business_id) === String(business_id)));
         return [{ affectedRows: 1 }];
       }
 
-      if (normalizedSql.includes('delete from userpasskeys where id =') && normalizedSql.includes('user_id =')) {
-        const [id, userId] = params;
-        const idx = memoryDb.UserPasskeys.findIndex(p => String(p.id) === String(id) && String(p.user_id) === String(userId));
-        if (idx !== -1) memoryDb.UserPasskeys.splice(idx, 1);
+      // 6. OHProviderLocations handlers
+      if (/^insert\s+into\s+ohproviderlocations\b/i.test(normalizedSql)) {
+        const [provider_id, address, city, state, country, postal_code, coverage_radius, latitude, longitude] = params;
+        const id = nextIds.OHProviderLocations++;
+        const newLoc = { 
+          id, 
+          provider_id: Number(provider_id), 
+          address: address || '', 
+          city: city || '', 
+          state: state || '', 
+          country: country || 'United Kingdom', 
+          postal_code: postal_code || '', 
+          coverage_radius: coverage_radius !== undefined ? Number(coverage_radius) : 30, 
+          latitude: latitude !== undefined && latitude !== null ? Number(latitude) : null, 
+          longitude: longitude !== undefined && longitude !== null ? Number(longitude) : null, 
+          created_at: new Date().toISOString() 
+        };
+        memoryDb.OHProviderLocations.push(newLoc);
+        return [{ insertId: id }];
+      }
+
+      if (/\bfrom\s+ohproviderlocations\b/i.test(normalizedSql) && /\bjoin\s+ohproviders\b/i.test(normalizedSql)) {
+        const results = memoryDb.OHProviderLocations.map(loc => {
+          const prov = memoryDb.OHProviders.find(p => String(p.id) === String(loc.provider_id)) || {};
+          return {
+            location_id: loc.id,
+            id: loc.id,
+            provider_id: loc.provider_id,
+            address: loc.address,
+            city: loc.city,
+            state: loc.state,
+            country: loc.country,
+            postal_code: loc.postal_code,
+            coverage_radius: loc.coverage_radius,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            company_name: prov.company_name || 'OH Clinic',
+            contact_person: prov.contact_person || 'Clinic Staff',
+            phone: prov.phone || '',
+            is_subscribed: prov.is_subscribed !== false
+          };
+        });
+        return [results];
+      }
+
+      if (/\bfrom\s+ohproviderlocations\b/i.test(normalizedSql) && normalizedSql.includes('provider_id =')) {
+        const providerId = params[0];
+        const results = memoryDb.OHProviderLocations.filter(l => String(l.provider_id) === String(providerId));
+        return [results];
+      }
+
+      if (/\bfrom\s+ohproviderlocations\b/i.test(normalizedSql) && normalizedSql.includes('where id =')) {
+        const id = params[0];
+        const results = memoryDb.OHProviderLocations.filter(l => String(l.id) === String(id));
+        return [results];
+      }
+
+      if (/\bfrom\s+ohproviderlocations\b/i.test(normalizedSql)) {
+        return [memoryDb.OHProviderLocations];
+      }
+
+      if (/^delete\s+from\s+ohproviderlocations\b/i.test(normalizedSql)) {
+        const [id, provider_id] = params;
+        memoryDb.OHProviderLocations = memoryDb.OHProviderLocations.filter(l => !(String(l.id) === String(id) && String(l.provider_id) === String(provider_id)));
         return [{ affectedRows: 1 }];
       }
 
-      if (normalizedSql.includes('from userpasskeys')) {
-        return [memoryDb.UserPasskeys];
+      // 7. OHProviderServices handlers
+      if (/^insert\s+into\s+ohproviderservices\b/i.test(normalizedSql)) {
+        const [provider_id, location_id, service_type] = params;
+        const id = nextIds.OHProviderServices++;
+        const newSvc = { 
+          id, 
+          provider_id: Number(provider_id), 
+          location_id: location_id ? Number(location_id) : null, 
+          service_type, 
+          created_at: new Date().toISOString() 
+        };
+        memoryDb.OHProviderServices.push(newSvc);
+        return [{ insertId: id }];
       }
 
-      console.warn('Unhandled mock query:', sql, params);
+      if (/\bfrom\s+ohproviderservices\b/i.test(normalizedSql) && normalizedSql.includes('location_id =')) {
+        const locationId = params[0];
+        const results = memoryDb.OHProviderServices.filter(s => String(s.location_id) === String(locationId));
+        return [results];
+      }
+
+      if (/\bfrom\s+ohproviderservices\b/i.test(normalizedSql) && normalizedSql.includes('provider_id =')) {
+        const providerId = params[0];
+        const results = memoryDb.OHProviderServices.filter(s => String(s.provider_id) === String(providerId));
+        return [results];
+      }
+
+      if (/\bfrom\s+ohproviderservices\b/i.test(normalizedSql)) {
+        return [memoryDb.OHProviderServices];
+      }
+
+      // 8. Referrals handlers
+      if (/^insert\s+into\s+referrals\b/i.test(normalizedSql)) {
+        const [business_id, business_location_id, service_type, employee_count, contact_name, contact_email, contact_phone, notes, status] = params;
+        const id = nextIds.Referrals++;
+        const newRef = {
+          id,
+          business_id: Number(business_id),
+          business_location_id: Number(business_location_id),
+          service_type,
+          employee_count: employee_count || 1,
+          contact_name: contact_name || '',
+          contact_email: contact_email || '',
+          contact_phone: contact_phone || '',
+          notes: notes || '',
+          status: status || 'pending',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        memoryDb.Referrals.push(newRef);
+        return [{ insertId: id }];
+      }
+
+      if (/\bfrom\s+referrals\b/i.test(normalizedSql) && /\bjoin\s+referralmatches\b/i.test(normalizedSql)) {
+        const providerId = params[0];
+        const provMatches = memoryDb.ReferralMatches.filter(m => String(m.provider_id) === String(providerId));
+        const results = provMatches.map(m => {
+          const ref = memoryDb.Referrals.find(r => String(r.id) === String(m.referral_id)) || {};
+          const biz = memoryDb.Businesses.find(b => String(b.id) === String(ref.business_id)) || {};
+          const loc = memoryDb.BusinessLocations.find(l => String(l.id) === String(ref.business_location_id)) || {};
+          return {
+            ...ref,
+            id: ref.id,
+            company_name: biz.company_name || 'Business',
+            contact_person: ref.contact_name || biz.contact_person || '',
+            contact_name: ref.contact_name || '',
+            contact_email: ref.contact_email || '',
+            contact_phone: ref.contact_phone || biz.phone || '',
+            notes: ref.notes || '',
+            location_address: loc.address || '',
+            location_city: loc.city || '',
+            location_postal_code: loc.postal_code || '',
+            match_status: m.status,
+            status: ref.status,
+            match_id: m.id,
+            distance: 2.06
+          };
+        });
+        return [results];
+      }
+
+      if (/\bfrom\s+referrals\b/i.test(normalizedSql) && normalizedSql.includes('where id =')) {
+        const id = params[0];
+        const results = memoryDb.Referrals.filter(r => String(r.id) === String(id));
+        return [results];
+      }
+
+      if (/\bfrom\s+referrals\b/i.test(normalizedSql) && normalizedSql.includes('business_id =')) {
+        const businessId = params[0];
+        const results = memoryDb.Referrals.filter(r => String(r.business_id) === String(businessId));
+        return [results];
+      }
+
+      if (/\bfrom\s+referrals\b/i.test(normalizedSql) && normalizedSql.includes('status =')) {
+        const status = params[0] || (normalizedSql.includes("'pending'") ? 'pending' : 'matched');
+        const results = memoryDb.Referrals.filter(r => r.status === status);
+        return [results];
+      }
+
+      if (/\bfrom\s+referrals\b/i.test(normalizedSql)) {
+        return [memoryDb.Referrals];
+      }
+
+      if (/^update\s+referrals\b/i.test(normalizedSql) && normalizedSql.includes('business_location_id')) {
+        const [business_location_id, service_type, employee_count, contact_name, contact_email, contact_phone, notes, status, id] = params;
+        const ref = memoryDb.Referrals.find(r => String(r.id) === String(id));
+        if (ref) {
+          ref.business_location_id = Number(business_location_id);
+          ref.service_type = service_type;
+          ref.employee_count = Number(employee_count);
+          ref.contact_name = contact_name;
+          ref.contact_email = contact_email;
+          ref.contact_phone = contact_phone;
+          ref.notes = notes;
+          ref.status = status;
+          ref.updated_at = new Date().toISOString();
+        }
+        return [{ affectedRows: ref ? 1 : 0 }];
+      }
+
+      if (/^update\s+referrals\s+set\s+status\s*=\s*\?\s*where\s+id\s*=\s*\?/i.test(normalizedSql)) {
+        const [status, id] = params;
+        const ref = memoryDb.Referrals.find(r => String(r.id) === String(id));
+        if (ref) {
+          ref.status = status;
+          ref.updated_at = new Date().toISOString();
+        }
+        return [{ affectedRows: ref ? 1 : 0 }];
+      }
+
+      if (/^update\s+referrals\b/i.test(normalizedSql)) {
+        const id = params[params.length - 1];
+        const ref = memoryDb.Referrals.find(r => String(r.id) === String(id));
+        if (ref) {
+          ref.service_type = params[0];
+          ref.employee_count = Number(params[1]) || ref.employee_count;
+          ref.contact_name = params[2];
+          ref.contact_email = params[3];
+          ref.contact_phone = params[4];
+          ref.notes = params[5];
+          ref.status = params[6] || ref.status;
+          ref.updated_at = new Date().toISOString();
+        }
+        return [{ affectedRows: ref ? 1 : 0 }];
+      }
+
+      if (/^delete\s+from\s+referrals\b/i.test(normalizedSql)) {
+        const id = params[0];
+        memoryDb.Referrals = memoryDb.Referrals.filter(r => String(r.id) !== String(id));
+        return [{ affectedRows: 1 }];
+      }
+
+      // 9. ReferralMatches handlers
+      if (/^insert\s+into\s+referralmatches\b/i.test(normalizedSql)) {
+        const [referral_id, provider_id, status] = params;
+        const id = nextIds.ReferralMatches++;
+        const newMatch = { 
+          id, 
+          referral_id: Number(referral_id), 
+          provider_id: Number(provider_id), 
+          status: status || 'matched', 
+          matched_at: new Date().toISOString() 
+        };
+        memoryDb.ReferralMatches.push(newMatch);
+        return [{ insertId: id }];
+      }
+
+      if (/\bfrom\s+referralmatches\b/i.test(normalizedSql) && /\bjoin\s+ohproviders\b/i.test(normalizedSql)) {
+        const referralId = params[0];
+        const matches = memoryDb.ReferralMatches.filter(m => String(m.referral_id) === String(referralId));
+        const results = matches.map(m => {
+          const prov = memoryDb.OHProviders.find(p => String(p.id) === String(m.provider_id)) || {};
+          const user = memoryDb.Users.find(u => String(u.id) === String(prov.user_id)) || {};
+          return {
+            match_id: m.id,
+            id: m.id,
+            match_status: m.status,
+            status: m.status,
+            match_created_at: m.matched_at || m.created_at,
+            provider_id: m.provider_id,
+            company_name: prov.company_name || 'OH Clinic',
+            contact_person: prov.contact_person || 'Clinic Lead',
+            phone: prov.phone || '',
+            provider_email: user.email || ''
+          };
+        });
+        return [results];
+      }
+
+      if (/\bfrom\s+referralmatches\b/i.test(normalizedSql) && normalizedSql.includes('referral_id =') && normalizedSql.includes('provider_id =')) {
+        const [referralId, providerId] = params;
+        const results = memoryDb.ReferralMatches.filter(m => String(m.referral_id) === String(referralId) && String(m.provider_id) === String(providerId));
+        return [results];
+      }
+
+      if (/\bfrom\s+referralmatches\b/i.test(normalizedSql) && normalizedSql.includes('referral_id =')) {
+        const referralId = params[0];
+        const results = memoryDb.ReferralMatches.filter(m => String(m.referral_id) === String(referralId));
+        return [results];
+      }
+
+      if (/\bfrom\s+referralmatches\b/i.test(normalizedSql) && normalizedSql.includes('provider_id =')) {
+        const providerId = params[0];
+        const results = memoryDb.ReferralMatches.filter(m => String(m.provider_id) === String(providerId));
+        return [results];
+      }
+
+      if (/\bfrom\s+referralmatches\b/i.test(normalizedSql)) {
+        return [memoryDb.ReferralMatches];
+      }
+
+      if (/^update\s+referralmatches\b/i.test(normalizedSql) && normalizedSql.includes('status = ? where id =')) {
+        const [status, id] = params;
+        const match = memoryDb.ReferralMatches.find(m => String(m.id) === String(id));
+        if (match) {
+          match.status = status;
+        }
+        return [{ affectedRows: match ? 1 : 0 }];
+      }
+
+      if (/^update\s+referralmatches\b/i.test(normalizedSql)) {
+        const [status, referral_id, provider_id] = params;
+        const match = memoryDb.ReferralMatches.find(m => String(m.referral_id) === String(referral_id) && (!provider_id || String(m.provider_id) === String(provider_id)));
+        if (match) {
+          match.status = status;
+        }
+        return [{ affectedRows: match ? 1 : 0 }];
+      }
+
+
+
+      // Default catch-all
+      console.log('Unhandled mock query:', sql, params);
       return [[]];
     } catch (err) {
-      console.error('Error in mockPool query:', err);
-      throw err;
+      console.error('Mock pool error:', err);
+      return [[]];
     }
-  },
-
-  async execute(sql, params = []) {
-    return this.query(sql, params);
   }
 };
 
-let schemaInitialized = false;
-
-async function initSchema(p) {
-  if (schemaInitialized) return;
+async function initPgSchema(client) {
   try {
-    await p.query(`
+    await client.query(`
       CREATE TABLE IF NOT EXISTS Users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        email VARCHAR(255) NOT NULL UNIQUE,
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
         password VARCHAR(255) NOT NULL,
-        user_type ENUM('business', 'provider', 'admin') NOT NULL,
+        user_type VARCHAR(50) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+      );
 
-    await p.query(`
       CREATE TABLE IF NOT EXISTS Businesses (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES Users(id) ON DELETE CASCADE,
         company_name VARCHAR(255) NOT NULL,
         contact_person VARCHAR(255) NOT NULL,
         phone VARCHAR(50),
-        FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
-      )
-    `);
-
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS BusinessLocations (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        business_id INT NOT NULL,
-        address VARCHAR(255) NOT NULL,
-        city VARCHAR(100) NOT NULL,
-        state VARCHAR(100),
-        country VARCHAR(100) NOT NULL,
-        postal_code VARCHAR(50),
-        employee_count VARCHAR(50) NOT NULL,
-        latitude DECIMAL(10, 8) NULL,
-        longitude DECIMAL(11, 8) NULL,
-        FOREIGN KEY (business_id) REFERENCES Businesses(id) ON DELETE CASCADE
-      )
-    `);
-
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS OHProviders (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        company_name VARCHAR(255) NOT NULL,
-        contact_person VARCHAR(255) NOT NULL,
-        phone VARCHAR(50),
-        is_subscribed BOOLEAN DEFAULT FALSE,
-        subscription_expiry DATE,
-        FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
-      )
-    `);
-
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS OHProviderLocations (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        provider_id INT NOT NULL,
-        address VARCHAR(255) NOT NULL,
-        city VARCHAR(100) NOT NULL,
-        state VARCHAR(100),
-        country VARCHAR(100) NOT NULL,
-        postal_code VARCHAR(50),
-        coverage_radius INT NOT NULL DEFAULT 30,
-        latitude DECIMAL(10, 8) NULL,
-        longitude DECIMAL(11, 8) NULL,
-        FOREIGN KEY (provider_id) REFERENCES OHProviders(id) ON DELETE CASCADE
-      )
-    `);
-
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS OHProviderServices (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        provider_id INT NOT NULL,
-        location_id INT NULL,
-        service_type VARCHAR(100) NOT NULL,
-        FOREIGN KEY (provider_id) REFERENCES OHProviders(id) ON DELETE CASCADE
-      )
-    `);
-
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS Referrals (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        business_id INT NOT NULL,
-        business_location_id INT NOT NULL,
-        service_type VARCHAR(255) NOT NULL,
-        employee_count INT NOT NULL DEFAULT 1,
-        contact_name VARCHAR(255) NULL,
-        contact_email VARCHAR(255) NULL,
-        contact_phone VARCHAR(50) NULL,
-        notes TEXT NULL,
-        status ENUM('pending', 'matched', 'completed') DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (business_id) REFERENCES Businesses(id) ON DELETE CASCADE,
-        FOREIGN KEY (business_location_id) REFERENCES BusinessLocations(id) ON DELETE CASCADE
-      )
-    `);
-
-    // Ensure columns exist on existing table
-    try { await p.query('ALTER TABLE Referrals ADD COLUMN employee_count INT NOT NULL DEFAULT 1'); } catch (e) {}
-    try { await p.query('ALTER TABLE Referrals ADD COLUMN contact_name VARCHAR(255) NULL'); } catch (e) {}
-    try { await p.query('ALTER TABLE Referrals ADD COLUMN contact_email VARCHAR(255) NULL'); } catch (e) {}
-    try { await p.query('ALTER TABLE Referrals ADD COLUMN contact_phone VARCHAR(50) NULL'); } catch (e) {}
-    try { await p.query('ALTER TABLE Referrals ADD COLUMN notes TEXT NULL'); } catch (e) {}
-
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS ReferralMatches (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        referral_id INT NOT NULL,
-        provider_id INT NOT NULL,
-        status ENUM('pending', 'accepted', 'rejected') DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (referral_id) REFERENCES Referrals(id) ON DELETE CASCADE,
-        FOREIGN KEY (provider_id) REFERENCES OHProviders(id) ON DELETE CASCADE
-      )
-    `);
-
-    await p.query(`
-      CREATE TABLE IF NOT EXISTS EmployeeNotifications (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        employee_name VARCHAR(255),
-        employee_email VARCHAR(255),
-        company_name VARCHAR(255),
-        manager_email VARCHAR(255),
-        message TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+      );
 
-    await p.query(`
+      CREATE TABLE IF NOT EXISTS BusinessLocations (
+        id SERIAL PRIMARY KEY,
+        business_id INT REFERENCES Businesses(id) ON DELETE CASCADE,
+        address VARCHAR(255),
+        city VARCHAR(255),
+        state VARCHAR(255),
+        country VARCHAR(255) DEFAULT 'United Kingdom',
+        postal_code VARCHAR(20) NOT NULL,
+        employee_count VARCHAR(50) DEFAULT '11-50',
+        latitude DECIMAL(10, 8),
+        longitude DECIMAL(11, 8),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS OHProviders (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES Users(id) ON DELETE CASCADE,
+        company_name VARCHAR(255) NOT NULL,
+        contact_person VARCHAR(255) NOT NULL,
+        phone VARCHAR(50),
+        is_subscribed BOOLEAN DEFAULT TRUE,
+        subscription_expiry TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS OHProviderLocations (
+        id SERIAL PRIMARY KEY,
+        provider_id INT REFERENCES OHProviders(id) ON DELETE CASCADE,
+        address VARCHAR(255),
+        city VARCHAR(255),
+        state VARCHAR(255),
+        country VARCHAR(255) DEFAULT 'United Kingdom',
+        postal_code VARCHAR(20) NOT NULL,
+        coverage_radius INT DEFAULT 30,
+        latitude DECIMAL(10, 8),
+        longitude DECIMAL(11, 8),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS OHProviderServices (
+        id SERIAL PRIMARY KEY,
+        provider_id INT REFERENCES OHProviders(id) ON DELETE CASCADE,
+        location_id INT REFERENCES OHProviderLocations(id) ON DELETE CASCADE,
+        service_type VARCHAR(100) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS Referrals (
+        id SERIAL PRIMARY KEY,
+        business_id INT REFERENCES Businesses(id) ON DELETE CASCADE,
+        business_location_id INT REFERENCES BusinessLocations(id) ON DELETE CASCADE,
+        service_type VARCHAR(100) NOT NULL,
+        employee_count INT NOT NULL DEFAULT 1,
+        contact_name VARCHAR(255),
+        contact_email VARCHAR(255),
+        contact_phone VARCHAR(50),
+        notes TEXT,
+        status VARCHAR(50) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS ReferralMatches (
+        id SERIAL PRIMARY KEY,
+        referral_id INT REFERENCES Referrals(id) ON DELETE CASCADE,
+        provider_id INT REFERENCES OHProviders(id) ON DELETE CASCADE,
+        status VARCHAR(50) DEFAULT 'matched',
+        matched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS UserPasskeys (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        credential_id VARCHAR(500) NOT NULL UNIQUE,
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES Users(id) ON DELETE CASCADE,
+        credential_id TEXT NOT NULL,
         public_key TEXT NOT NULL,
         counter BIGINT NOT NULL DEFAULT 0,
         transports VARCHAR(255),
         device_name VARCHAR(255) DEFAULT 'Security Key / Biometrics',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES Users(id) ON DELETE CASCADE
-      )
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
-
-    schemaInitialized = true;
-    console.log('Verified database schema tables in MySQL successfully!');
+    console.log('✅ Supabase PostgreSQL schema initialized and verified!');
   } catch (err) {
-    console.error('Error ensuring schema in MySQL:', err.message);
+    console.error('Error initializing PostgreSQL schema:', err.message);
   }
 }
 
@@ -954,29 +811,70 @@ const delegatePool = {
   set useMock(val) {
     useMock = val;
   },
+  get dbEngineType() {
+    return dbEngineType;
+  },
   memoryDb,
   nextIds,
   async query(sql, params = []) {
-    if (!realPool && !useMock) {
-      try {
-        realPool = mysql.createPool(poolConfig);
-        // Test connection
-        await realPool.query('SELECT 1');
-        console.log('Successfully connected to the real MySQL database!');
-        await initSchema(realPool);
-      } catch (err) {
-        console.warn('Could not connect to real MySQL database, falling back to IN-MEMORY database. Error:', err.message);
-        useMock = true;
-        realPool = null;
+    // 1. Check if Supabase / PostgreSQL is configured via DATABASE_URL
+    if (isPostgresConfigured() && !useMock) {
+      if (!pgPool) {
+        try {
+          const connectionString = getDatabaseUrl();
+          pgPool = new PgPool({
+            connectionString,
+            ssl: { rejectUnauthorized: false },
+            connectionTimeoutMillis: 5000
+          });
+          const client = await pgPool.connect();
+          console.log('🎉 Successfully connected to Supabase PostgreSQL database!');
+          dbEngineType = 'supabase';
+          await initPgSchema(client);
+          client.release();
+        } catch (pgErr) {
+          console.warn('Could not connect to Supabase PostgreSQL, falling back. Error:', pgErr.message);
+          pgPool = null;
+          useMock = true;
+          dbEngineType = 'in-memory';
+        }
+      }
+
+      if (pgPool) {
+        const convertedSql = convertSqlForPostgres(sql);
+        const res = await pgPool.query(convertedSql, params);
+        
+        // Format result to match MySQL promise API expected by controllers
+        if (/^insert\s+into/i.test(sql.trim())) {
+          return [{ insertId: res.rows[0]?.id, affectedRows: res.rowCount }, res.fields];
+        } else if (/^(update|delete)/i.test(sql.trim())) {
+          return [{ affectedRows: res.rowCount }, res.fields];
+        } else {
+          return [res.rows, res.fields];
+        }
       }
     }
 
-    if (useMock || !realPool) {
-      return mockPool.query(sql, params);
-    } else {
-      if (!schemaInitialized && realPool) {
-        await initSchema(realPool);
+    // 2. Check if MySQL is configured via DB_HOST
+    if (!realPool && !useMock && !isPostgresConfigured()) {
+      try {
+        realPool = mysql.createPool(poolConfig);
+        await realPool.query('SELECT 1');
+        console.log('Successfully connected to MySQL database!');
+        dbEngineType = 'mysql';
+      } catch (err) {
+        console.warn('Could not connect to MySQL database, falling back to IN-MEMORY database.');
+        useMock = true;
+        realPool = null;
+        dbEngineType = 'in-memory';
       }
+    }
+
+    if (useMock || (!realPool && !pgPool)) {
+      dbEngineType = 'in-memory';
+      return mockPool.query(sql, params);
+    } else if (realPool) {
+      dbEngineType = 'mysql';
       return realPool.query(sql, params);
     }
   },

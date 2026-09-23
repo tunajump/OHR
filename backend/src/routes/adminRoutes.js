@@ -235,9 +235,17 @@ router.get('/database/overview', [auth, requireAdmin], async (req, res) => {
         { name: 'UserPasskeys', description: 'Registered WebAuthn FIDO2 Passkeys & biometric credentials', count: passkeys.length, rows: passkeys }
       ];
 
+      const engineLabel = pool.dbEngineType === 'supabase'
+        ? 'Supabase Managed PostgreSQL (Persistent Cloud Storage)'
+        : (process.env.DB_HOST ? 'MySQL 8.0 Cloud Database' : 'Embedded In-Memory Database (Self-Contained & Active)');
+
+      const hostLabel = pool.dbEngineType === 'supabase'
+        ? 'Supabase Cloud (db.ljwydtioegzjpqarkjgp.supabase.co)'
+        : (process.env.DB_HOST || 'Live Production Server (Render)');
+
       return res.json({
-        engine: 'MySQL 8.0 Engine',
-        host: process.env.DB_HOST || 'localhost:3307',
+        engine: engineLabel,
+        host: hostLabel,
         status: 'Online & Connected',
         supabaseConfigurable: true,
         tables

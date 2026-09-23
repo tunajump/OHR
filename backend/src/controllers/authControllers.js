@@ -58,7 +58,7 @@ exports.register = async (req, res) => {
       try {
         await pool.query(
           'INSERT INTO OHProviders (user_id, company_name, contact_person, phone, is_subscribed) VALUES (?, ?, ?, ?, ?)',
-          [userId, organizationName || name || 'My OH Clinic Ltd', name || 'Clinician', phone || '', true]
+          [userId, organizationName || name || 'My OH Clinic Ltd', name || 'Clinician', phone || '', false]
         );
       } catch (err) {
         console.warn('Auto profile insertion notice:', err.message);

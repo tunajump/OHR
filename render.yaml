@@ -18,6 +18,8 @@ services:
         value: admin@ohreferral.co.uk
       - key: ADMIN_PASSWORD
         value: AdminOHR2026!Secure
+      - key: DATABASE_URL
+        value: postgresql://postgres:XUdPTYtqxyes5MqL@db.ljwydtioegzjpqarkjgp.supabase.co:5432/postgres
       - key: DB_HOST
         value: localhost
       - key: DB_PORT

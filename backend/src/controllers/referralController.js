@@ -253,8 +253,6 @@ exports.createReferral = async (req, res) => {
 
     const [allServices] = await pool.query('SELECT provider_id, location_id, service_type FROM OHProviderServices');
 
-    console.log('[DEBUG] Matching Referral coords:', { refLat, refLon, requestedServices });
-
     const candidates = [];
 
     // 7. Filter provider locations that cover ALL requested services and are within distance radius
@@ -269,7 +267,6 @@ exports.createReferral = async (req, res) => {
 
       const coversAll = requestedServices.every(reqSvc => locServices.includes(reqSvc));
       if (!coversAll) {
-        console.log(`[DEBUG] Provider location ${pLoc.location_id} does not cover all services:`, { locServices, requestedServices });
         continue;
       }
 
@@ -278,7 +275,6 @@ exports.createReferral = async (req, res) => {
       const coverageRadius = parseFloat(pLoc.coverage_radius); // in miles
 
       const distance = haversineDistance(refLat, refLon, provLat, provLon, 'miles');
-      console.log(`[DEBUG] Distance from ref to provider ${pLoc.provider_id} is ${distance} miles (coverage_radius: ${coverageRadius})`);
 
       if (distance <= coverageRadius) {
         candidates.push({
@@ -769,7 +765,6 @@ exports.updateReferral = async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized to edit this referral' });
     }
 
-    console.log('[DEBUG updateReferral]', { referralId, status: referral.status, businessId });
     // Check status: ONLY allowed while pending
     if (referral.status !== 'pending') {
       return res.status(400).json({ 

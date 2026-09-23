@@ -284,38 +284,41 @@ const DatabaseViewer = () => {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6">
             <div>
               <h2 className="text-lg font-bold text-slate-900 mb-1">
-                Database Architecture & Hosting Options
+                Database Architecture & Supabase Cloud Storage
               </h2>
               <p className="text-xs text-slate-500">
-                Understanding your database engine and external persistent cloud storage.
+                Persistent cloud storage with Supabase PostgreSQL and automated schema management.
               </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-5 rounded-2xl border border-slate-200 bg-slate-50 space-y-3">
+              <div className="p-5 rounded-2xl border border-emerald-200 bg-emerald-50/50 space-y-3">
                 <div className="flex items-center gap-2">
-                  <HardDrive className="w-5 h-5 text-blue-600" />
-                  <h3 className="font-bold text-sm text-slate-900">Current Setup: Embedded In-Memory Engine</h3>
+                  <Server className="w-5 h-5 text-emerald-600" />
+                  <h3 className="font-bold text-sm text-slate-900">1. Supabase PostgreSQL (Recommended & Configured)</h3>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  The application is running with a built-in relational database engine with full spatial UK geocoding calculations. It requires zero cloud database fees and runs directly inside your Render web service.
+                  The backend now supports direct connections to <strong>Supabase PostgreSQL</strong>. Tables for Users, Businesses, OHProviders, Referrals, and Passkeys are automatically initialized and synchronized.
                 </p>
-                <div className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl font-medium">
-                  &bull; Active, fully functional, and ready for immediate platform use.
+                <div className="bg-slate-900 text-slate-100 p-3 rounded-xl text-xs font-mono overflow-x-auto">
+                  <code>DATABASE_URL=postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres</code>
+                </div>
+                <div className="text-[11px] text-emerald-700 bg-emerald-100 border border-emerald-300 p-2.5 rounded-xl font-medium">
+                  &bull; Configured in Render Web Service environment variables for permanent persistence.
                 </div>
               </div>
 
               <div className="p-5 rounded-2xl border border-slate-200 bg-slate-50 space-y-3">
                 <div className="flex items-center gap-2">
-                  <Server className="w-5 h-5 text-emerald-600" />
-                  <h3 className="font-bold text-sm text-slate-900">Optional: External Cloud Database (Supabase / MySQL)</h3>
+                  <HardDrive className="w-5 h-5 text-blue-600" />
+                  <h3 className="font-bold text-sm text-slate-900">2. Embedded In-Memory Engine (Fallback)</h3>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  If you want long-term persistent database storage that survives server restarts indefinitely, you can connect a free managed database like <strong>Supabase PostgreSQL</strong> or <strong>Render Managed MySQL</strong>.
+                  If no external cloud database is specified, the application seamlessly runs on its built-in relational engine with spatial UK geocoding calculations.
                 </p>
-                <p className="text-xs text-slate-500">
-                  To connect: Add DB_HOST, DB_USER, DB_PASSWORD to your Render environment variables. The backend will automatically switch to persistent cloud mode.
-                </p>
+                <div className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 p-2.5 rounded-xl font-medium">
+                  &bull; Self-contained fallback ensuring 100% platform uptime.
+                </div>
               </div>
             </div>
           </div>
