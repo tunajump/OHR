@@ -26,10 +26,10 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "test": "cd frontend && npm test -- --watchAll=false",
-    "test:frontend": "cd frontend && npm test -- --watchAll=false",
-    "test:stage": "cd backend && node test_stage_runner.js",
-    "test:all": "cd frontend && npm test -- --watchAll=false && cd ../backend && node test_stage_runner.js",
+    "test": "jest --watchAll=false",
+    "test:frontend": "jest --watchAll=false",
+    "test:stage": "node backend/test_stage_runner.js",
+    "test:all": "jest --watchAll=false && node backend/test_stage_runner.js",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {

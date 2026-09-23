@@ -24,5 +24,5 @@ jest.mock('@simplewebauthn/browser', () => ({
   }),
   browserSupportsWebAuthn: jest.fn().mockReturnValue(true),
   browserSupportsWebAuthnAutofill: jest.fn().mockResolvedValue(true)
-}));
+}), { virtual: true });
 

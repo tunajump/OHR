@@ -7,7 +7,7 @@ jest.mock('@simplewebauthn/browser', () => ({
   startAuthentication: jest.fn().mockResolvedValue({ id: 'mock_pk', response: {} }),
   browserSupportsWebAuthn: jest.fn().mockReturnValue(true),
   browserSupportsWebAuthnAutofill: jest.fn().mockResolvedValue(true)
-}));
+}), { virtual: true });
 
 import App from './App';
 import { AuthProvider } from './context/AuthContext';
