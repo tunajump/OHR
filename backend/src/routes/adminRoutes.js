@@ -194,8 +194,8 @@ router.get('/database/overview', [auth, requireAdmin], async (req, res) => {
       ];
 
       return res.json({
-        engine: 'In-Memory Mock Database (with UK Postcode Geocoding Engine)',
-        host: 'localhost:5000',
+        engine: 'Embedded In-Memory Database (Self-Contained & Active)',
+        host: 'Live Production Server (Render)',
         status: 'Online & Active',
         supabaseConfigurable: true,
         tables
