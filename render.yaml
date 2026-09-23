@@ -29,8 +29,7 @@ services:
   - type: web
     name: ohr-frontend
     env: static
-    rootDir: frontend
-    buildCommand: npm install && CI=false npm run build
+    buildCommand: cd frontend && npm install && CI=false npm run build
     staticPublishPath: frontend/build
     routes:
       - type: rewrite
