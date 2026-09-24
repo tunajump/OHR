@@ -24,7 +24,11 @@ import {
   User, 
   Users, 
   Send,
-  Lock
+  Lock,
+  Globe,
+  Upload,
+  Image as ImageIcon,
+  ExternalLink
 } from 'lucide-react';
 
 const AVAILABLE_SERVICES = [
@@ -46,6 +50,18 @@ const ProviderDashboard = () => {
   const [editingLocation, setEditingLocation] = useState(null);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [requestingMap, setRequestingMap] = useState({});
+
+  // Profile Edit Modal State
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    companyName: '',
+    contactPerson: '',
+    phone: '',
+    logoUrl: '',
+    website: '',
+    description: ''
+  });
 
   // Location form state for both Add and Edit
   const [locationForm, setLocationForm] = useState({
@@ -87,6 +103,68 @@ const ProviderDashboard = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  const handleOpenEditProfile = () => {
+    setProfileForm({
+      companyName: profile?.company_name || user?.organizationName || '',
+      contactPerson: profile?.contact_person || user?.name || '',
+      phone: profile?.phone || '',
+      logoUrl: profile?.logo_url || '',
+      website: profile?.website || '',
+      description: profile?.description || ''
+    });
+    setError('');
+    setIsProfileModalOpen(true);
+  };
+
+  const handleLogoFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Logo image must be smaller than 2MB.');
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setError('Please select a valid image file (PNG, JPG, WebP, SVG).');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setProfileForm((prev) => ({ ...prev, logoUrl: event.target.result }));
+    };
+    reader.onerror = () => {
+      setError('Failed to read image file.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccessMsg('');
+    setIsSavingProfile(true);
+
+    try {
+      await api.put('/provider/profile', {
+        companyName: profileForm.companyName,
+        contactPerson: profileForm.contactPerson,
+        phone: profileForm.phone,
+        logoUrl: profileForm.logoUrl,
+        website: profileForm.website,
+        description: profileForm.description
+      });
+      setSuccessMsg('Practice profile updated successfully!');
+      setIsProfileModalOpen(false);
+      await fetchData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update provider profile.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   const handleOpenAddLocation = () => {
     setEditingLocation(null);
@@ -219,13 +297,31 @@ const ProviderDashboard = () => {
     <div className="flex-1 bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-8">
         {/* Top Header & Profile Overview */}
-        <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-inner">
-              <Stethoscope className="w-7 h-7" />
+        <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+          <div className="flex items-start sm:items-center gap-4">
+            <div className="relative group flex-shrink-0">
+              {profile?.logo_url ? (
+                <img
+                  src={profile.logo_url}
+                  alt={profile.company_name || 'Practice Logo'}
+                  className="w-16 h-16 rounded-2xl object-cover shadow-inner border border-slate-200 bg-white"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-inner">
+                  <Stethoscope className="w-8 h-8" />
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={handleOpenEditProfile}
+                title="Change Practice Logo & Profile"
+                className="absolute -bottom-1 -right-1 p-1 bg-white border border-slate-300 rounded-full shadow-sm text-slate-600 hover:text-indigo-600 hover:border-indigo-400 transition-colors"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-bold text-slate-900">
                   {profile?.company_name || user?.organizationName || 'OH Provider Portal'}
                 </h1>
@@ -243,13 +339,51 @@ const ProviderDashboard = () => {
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Contact: <span className="font-semibold text-slate-700">{profile?.contact_person || user?.name || 'Clinic Lead'}</span> &bull; Email: <span className="font-semibold text-slate-700">{user?.email}</span>
-              </p>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+                <span>
+                  Contact: <strong className="text-slate-700">{profile?.contact_person || user?.name || 'Clinic Lead'}</strong>
+                </span>
+                {profile?.phone && (
+                  <span className="flex items-center gap-1">
+                    <Phone className="w-3 h-3 text-slate-400" />
+                    <strong className="text-slate-700">{profile.phone}</strong>
+                  </span>
+                )}
+                {profile?.website && (
+                  <a
+                    href={profile.website.startsWith('http') ? profile.website : `https://${profile.website}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 hover:underline font-medium"
+                  >
+                    <Globe className="w-3 h-3" />
+                    <span>{profile.website.replace(/^https?:\/\//, '')}</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
+                <span>
+                  Email: <strong className="text-slate-700">{user?.email}</strong>
+                </span>
+              </div>
+
+              {profile?.description && (
+                <p className="text-xs text-slate-600 pt-1 line-clamp-2 max-w-2xl leading-relaxed">
+                  {profile.description}
+                </p>
+              )}
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleOpenEditProfile}
+              className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-400 transition-all flex items-center gap-1.5 shadow-xs"
+            >
+              <Building2 className="w-4 h-4 text-slate-500" />
+              <span>Edit Practice Profile</span>
+            </button>
+
             <button
               onClick={() => {
                 const el = document.getElementById('subscription-manager');
@@ -761,6 +895,182 @@ const ProviderDashboard = () => {
                 >
                   {isSavingLocation && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{editingLocation ? 'Save Changes' : 'Add Location'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Practice Profile Modal */}
+      {isProfileModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] flex flex-col">
+            <button
+              onClick={() => setIsProfileModalOpen(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                <Building2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">
+                  Edit Practice Profile
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Update your clinic logo, practice details, contact information, and accreditation summary.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveProfile} className="space-y-4 overflow-y-auto pr-1">
+              {/* Practice Logo Upload & Preview */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Practice Logo
+                </label>
+                <div className="flex items-center gap-4 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                  {profileForm.logoUrl ? (
+                    <div className="relative flex-shrink-0">
+                      <img
+                        src={profileForm.logoUrl}
+                        alt="Logo preview"
+                        className="w-16 h-16 rounded-xl object-cover border border-slate-300 bg-white shadow-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setProfileForm(prev => ({ ...prev, logoUrl: '' }))}
+                        className="absolute -top-1.5 -right-1.5 p-1 bg-red-600 text-white rounded-full hover:bg-red-700 shadow-xs"
+                        title="Remove Logo"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-slate-200 text-slate-400 flex items-center justify-center flex-shrink-0">
+                      <ImageIcon className="w-8 h-8" />
+                    </div>
+                  )}
+
+                  <div className="flex-1 space-y-1.5">
+                    <label className="btn-secondary text-xs px-3 py-1.5 inline-flex items-center gap-1.5 cursor-pointer">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{profileForm.logoUrl ? 'Change Logo Image' : 'Upload Logo Image'}</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                        onChange={handleLogoFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                    <p className="text-[11px] text-slate-500">
+                      Supports PNG, JPG, WebP, SVG (Max 2MB).
+                    </p>
+                  </div>
+                </div>
+
+                {/* Direct image URL alternative */}
+                <div className="mt-2">
+                  <input
+                    type="url"
+                    placeholder="Or paste an image URL (https://...)"
+                    value={profileForm.logoUrl && !profileForm.logoUrl.startsWith('data:') ? profileForm.logoUrl : ''}
+                    onChange={(e) => setProfileForm({ ...profileForm, logoUrl: e.target.value })}
+                    className="input-field text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Company / Practice Name */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Practice / Organization Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. MedOH Occupational Health Ltd"
+                  value={profileForm.companyName}
+                  onChange={(e) => setProfileForm({ ...profileForm, companyName: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Contact Person *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Dr. Sarah Jenkins"
+                    value={profileForm.contactPerson}
+                    onChange={(e) => setProfileForm({ ...profileForm, contactPerson: e.target.value })}
+                    className="input-field"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. 020 7946 0192"
+                    value={profileForm.phone}
+                    onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                    className="input-field"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Website URL
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. www.medoh-health.co.uk"
+                  value={profileForm.website}
+                  onChange={(e) => setProfileForm({ ...profileForm, website: e.target.value })}
+                  className="input-field"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  Practice Overview & Accreditations
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="SEQOHS accredited provider specializing in statutory health surveillance, pre-placement fitness assessments, and sickness absence management..."
+                  value={profileForm.description}
+                  onChange={(e) => setProfileForm({ ...profileForm, description: e.target.value })}
+                  className="input-field text-xs leading-relaxed"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileModalOpen(false)}
+                  disabled={isSavingProfile}
+                  className="btn-secondary text-xs px-4 py-2"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingProfile}
+                  className="btn-primary text-xs px-5 py-2 flex items-center gap-1.5"
+                >
+                  {isSavingProfile && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Save Profile</span>
                 </button>
               </div>
             </form>

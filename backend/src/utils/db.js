@@ -269,7 +269,7 @@ const mockPool = {
 
       // 4. OHProviders handlers
       if (/^insert\s+into\s+ohproviders\b/i.test(normalizedSql)) {
-        const [user_id, company_name, contact_person, phone, is_subscribed] = params;
+        const [user_id, company_name, contact_person, phone, logo_url, website, description, is_subscribed] = params;
         const id = nextIds.OHProviders++;
         const newProv = { 
           id, 
@@ -277,7 +277,10 @@ const mockPool = {
           company_name: company_name || '', 
           contact_person: contact_person || '', 
           phone: phone || '', 
-          is_subscribed: Boolean(is_subscribed),
+          logo_url: logo_url || null,
+          website: website || null,
+          description: description || null,
+          is_subscribed: is_subscribed !== undefined ? Boolean(is_subscribed) : false,
           subscription_expiry: null,
           created_at: new Date().toISOString() 
         };
@@ -286,12 +289,17 @@ const mockPool = {
       }
 
       if (/^update\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('company_name =')) {
-        const [company_name, contact_person, phone, id] = params;
+        const id = params[params.length - 1];
         const prov = memoryDb.OHProviders.find(p => String(p.id) === String(id));
         if (prov) {
-          prov.company_name = company_name;
-          prov.contact_person = contact_person;
-          prov.phone = phone;
+          prov.company_name = params[0] || prov.company_name;
+          prov.contact_person = params[1] || prov.contact_person;
+          prov.phone = params[2] || prov.phone;
+          if (normalizedSql.includes('logo_url =')) {
+            prov.logo_url = params[3] !== undefined ? params[3] : prov.logo_url;
+            prov.website = params[4] !== undefined ? params[4] : prov.website;
+            prov.description = params[5] !== undefined ? params[5] : prov.description;
+          }
         }
         return [{ affectedRows: prov ? 1 : 0 }];
       }
@@ -841,6 +849,9 @@ async function initPgSchema(client) {
         company_name VARCHAR(255) NOT NULL,
         contact_person VARCHAR(255) NOT NULL,
         phone VARCHAR(50),
+        logo_url TEXT,
+        website VARCHAR(255),
+        description TEXT,
         is_subscribed BOOLEAN DEFAULT TRUE,
         subscription_expiry TIMESTAMP,
         stripe_customer_id VARCHAR(255),

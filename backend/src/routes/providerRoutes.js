@@ -19,6 +19,7 @@ const router = express.Router();
 
 router.get('/profile', auth, getProviderProfile);
 router.post('/profile', auth, createProviderProfile);
+router.put('/profile', auth, createProviderProfile);
 router.get('/subscription/summary', auth, getSubscriptionSummary);
 router.post('/subscription/create-checkout-session', auth, createCheckoutSession);
 router.post('/subscription/checkout', auth, createCheckoutSession);

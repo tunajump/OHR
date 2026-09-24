@@ -89,6 +89,15 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
       await pool.query('ALTER TABLE OHProviderLocations ADD COLUMN longitude DECIMAL(11, 8) NULL');
     } catch (e) {}
     try {
+      await pool.query('ALTER TABLE OHProviders ADD COLUMN logo_url TEXT NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE OHProviders ADD COLUMN website VARCHAR(255) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE OHProviders ADD COLUMN description TEXT NULL');
+    } catch (e) {}
+    try {
       await pool.query('ALTER TABLE OHProviders ADD COLUMN stripe_customer_id VARCHAR(255) NULL');
     } catch (e) {}
     try {

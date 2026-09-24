@@ -2,25 +2,46 @@ const pool = require('../utils/db');
 const { geocodePostcode } = require('../utils/postcode');
 
 exports.createProviderProfile = async (req, res) => {
-  const { companyName, contactPerson, phone } = req.body;
+  const { companyName, contactPerson, phone, logoUrl, logo_url, website, description } = req.body;
+  const logo = logoUrl !== undefined ? logoUrl : (logo_url !== undefined ? logo_url : undefined);
   const userId = req.user.id;
 
   try {
-    const [existing] = await pool.query('SELECT id FROM OHProviders WHERE user_id = ?', [userId]);
+    const [existing] = await pool.query('SELECT * FROM OHProviders WHERE user_id = ?', [userId]);
     if (existing.length > 0) {
+      const current = existing[0];
+      const updatedCompany = companyName !== undefined ? companyName : current.company_name;
+      const updatedContact = contactPerson !== undefined ? contactPerson : current.contact_person;
+      const updatedPhone = phone !== undefined ? phone : current.phone;
+      const updatedLogo = logo !== undefined ? logo : current.logo_url;
+      const updatedWebsite = website !== undefined ? website : current.website;
+      const updatedDescription = description !== undefined ? description : current.description;
+
       await pool.query(
-        'UPDATE OHProviders SET company_name = ?, contact_person = ?, phone = ? WHERE id = ?',
-        [companyName, contactPerson, phone, existing[0].id]
+        'UPDATE OHProviders SET company_name = ?, contact_person = ?, phone = ?, logo_url = ?, website = ?, description = ? WHERE id = ?',
+        [updatedCompany, updatedContact, updatedPhone, updatedLogo, updatedWebsite, updatedDescription, current.id]
       );
-      return res.status(201).json({ message: 'OH Provider profile updated', providerId: existing[0].id });
+
+      const [refreshed] = await pool.query('SELECT * FROM OHProviders WHERE id = ?', [current.id]);
+      return res.status(201).json({ 
+        message: 'OH Provider profile updated', 
+        providerId: current.id,
+        profile: refreshed && refreshed[0] ? refreshed[0] : current
+      });
     }
 
     const [result] = await pool.query(
-      'INSERT INTO OHProviders (user_id, company_name, contact_person, phone) VALUES (?, ?, ?, ?)',
-      [userId, companyName, contactPerson, phone]
+      'INSERT INTO OHProviders (user_id, company_name, contact_person, phone, logo_url, website, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [userId, companyName, contactPerson, phone, logo || null, website || null, description || null]
     );
 
-    res.status(201).json({ message: 'OH Provider profile created', providerId: result.insertId });
+    const [newProfile] = await pool.query('SELECT * FROM OHProviders WHERE id = ?', [result.insertId]);
+
+    res.status(201).json({ 
+      message: 'OH Provider profile created', 
+      providerId: result.insertId,
+      profile: newProfile && newProfile[0] ? newProfile[0] : null
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
