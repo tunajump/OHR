@@ -4,6 +4,9 @@ const {
   getProviderProfile,
   updateSubscription,
   getSubscriptionSummary,
+  createCheckoutSession,
+  createPortalSession,
+  handleStripeWebhook,
   addProviderLocation, 
   getProviderLocations,
   updateProviderLocation,
@@ -17,6 +20,12 @@ const router = express.Router();
 router.get('/profile', auth, getProviderProfile);
 router.post('/profile', auth, createProviderProfile);
 router.get('/subscription/summary', auth, getSubscriptionSummary);
+router.post('/subscription/create-checkout-session', auth, createCheckoutSession);
+router.post('/subscription/checkout', auth, createCheckoutSession);
+router.post('/subscription/create-portal-session', auth, createPortalSession);
+router.post('/subscription/portal', auth, createPortalSession);
+router.post('/webhooks/stripe', handleStripeWebhook);
+
 router.post('/subscribe', auth, updateSubscription);
 router.put('/subscribe', auth, updateSubscription);
 router.post('/profile/subscription', auth, updateSubscription);

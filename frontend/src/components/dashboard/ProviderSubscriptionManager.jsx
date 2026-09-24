@@ -17,7 +17,9 @@ import {
   Calendar,
   ExternalLink,
   ChevronRight,
-  Check
+  Check,
+  Receipt,
+  FileText
 } from 'lucide-react';
 
 const RADIUS_PRICING = [
@@ -40,12 +42,14 @@ export const calculateLocationPrice = (radius) => {
 const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscriptionUpdated }) => {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [stripeCheckoutLoading, setStripeCheckoutLoading] = useState(false);
+  const [stripePortalLoading, setStripePortalLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
   const [actionMsg, setActionMsg] = useState('');
   const [actionError, setActionError] = useState('');
   const [editingRadiusMap, setEditingRadiusMap] = useState({});
 
-  const isSubscribed = Boolean(profile?.is_subscribed);
+  const isSubscribed = Boolean(profile?.is_subscribed || summary?.isSubscribed);
 
   const fetchSummary = async () => {
     try {
@@ -58,6 +62,16 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
 
   useEffect(() => {
     fetchSummary();
+
+    // Check if returning from Stripe Checkout success
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('subscription_status') === 'success') {
+      setActionMsg('🎉 Subscription activated successfully via Stripe Checkout! Welcome to Pro.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (urlParams.get('subscription_status') === 'cancelled') {
+      setActionError('Stripe Checkout was cancelled. Your account remains on the Free Match Preview tier.');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, [locations, profile]);
 
   const handleUpdateRadius = async (locationId, newRadius) => {
@@ -76,6 +90,42 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
       setActionError(err.response?.data?.message || 'Failed to update coverage radius.');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleStripeCheckout = async () => {
+    setStripeCheckoutLoading(true);
+    setActionMsg('');
+    setActionError('');
+    try {
+      const res = await api.post('/provider/subscription/create-checkout-session');
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+      } else {
+        throw new Error('Checkout session URL not received from Stripe');
+      }
+    } catch (err) {
+      console.error('Stripe checkout error:', err);
+      setActionError(err.response?.data?.message || err.message || 'Failed to initialize Stripe checkout. Please try again.');
+      setStripeCheckoutLoading(false);
+    }
+  };
+
+  const handleStripeCustomerPortal = async () => {
+    setStripePortalLoading(true);
+    setActionMsg('');
+    setActionError('');
+    try {
+      const res = await api.post('/provider/subscription/create-portal-session');
+      if (res.data?.url) {
+        window.location.href = res.data.url;
+      } else {
+        throw new Error('Portal session URL not received from Stripe');
+      }
+    } catch (err) {
+      console.error('Stripe portal error:', err);
+      setActionError(err.response?.data?.message || err.message || 'Failed to open Stripe Billing Portal.');
+      setStripePortalLoading(false);
     }
   };
 
@@ -134,7 +184,7 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
               )}
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Radius-based cumulative billing based on your registered clinic locations.
+              Radius-based cumulative billing powered by Stripe.
             </p>
           </div>
         </div>
@@ -178,19 +228,30 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => handleToggleSubscription(true)}
-            disabled={loading || locList.length === 0}
-            className="btn-primary py-2.5 px-5 text-xs font-bold whitespace-nowrap flex items-center gap-2 shadow-md hover:shadow-lg disabled:opacity-60"
-          >
-            {loading ? (
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <Zap className="w-4 h-4" />
-            )}
-            <span>Activate Pro Subscription (£{totalCost}/mo)</span>
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2.5 w-full md:w-auto">
+            <button
+              type="button"
+              onClick={handleStripeCheckout}
+              disabled={stripeCheckoutLoading || locList.length === 0}
+              className="btn-primary py-2.5 px-5 text-xs font-bold whitespace-nowrap flex items-center justify-center gap-2 shadow-md hover:shadow-lg disabled:opacity-60"
+            >
+              {stripeCheckoutLoading ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <CreditCard className="w-4 h-4" />
+              )}
+              <span>Subscribe with Stripe (£{totalCost}/mo)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleSubscription(true)}
+              disabled={loading || locList.length === 0}
+              className="text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 transition-all flex items-center justify-center gap-1.5"
+              title="Instant Direct Activation"
+            >
+              <span>Instant Activate</span>
+            </button>
+          </div>
         </div>
       ) : (
         <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200 rounded-2xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -204,14 +265,31 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => handleToggleSubscription(false)}
-            disabled={loading}
-            className="text-xs font-semibold text-slate-600 hover:text-red-700 bg-white hover:bg-red-50 border border-slate-200 rounded-xl px-4 py-2 transition-all"
-          >
-            Pause / Cancel Subscription
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2.5 w-full md:w-auto">
+            {summary?.stripeCustomerId && (
+              <button
+                type="button"
+                onClick={handleStripeCustomerPortal}
+                disabled={stripePortalLoading}
+                className="btn-secondary py-2 px-4 text-xs font-semibold flex items-center justify-center gap-2 whitespace-nowrap"
+              >
+                {stripePortalLoading ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <ExternalLink className="w-3.5 h-3.5" />
+                )}
+                <span>Manage Billing & VAT Invoices</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => handleToggleSubscription(false)}
+              disabled={loading}
+              className="text-xs font-semibold text-slate-600 hover:text-red-700 bg-white hover:bg-red-50 border border-slate-200 rounded-xl px-4 py-2 transition-all flex items-center justify-center"
+            >
+              Pause Subscription
+            </button>
+          </div>
         </div>
       )}
 
@@ -343,7 +421,7 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
             <span>Billing & Invoice Guarantee</span>
           </h4>
           <p className="text-[11px] text-slate-600 leading-relaxed">
-            Monthly billing via UK Direct Debit (Bacs) or Credit/Debit Card with itemized VAT receipts automatically dispatched to <span className="font-semibold">{profile?.contact_person || 'your account email'}</span>.
+            Automated monthly billing via Stripe supporting UK Direct Debit (Bacs) and Credit/Debit Cards. HMRC-compliant itemized VAT receipts and invoices accessible 24/7.
           </p>
         </div>
       </div>

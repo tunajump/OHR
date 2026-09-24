@@ -13,6 +13,10 @@ dotenv.config();
 const app = express();
 
 app.use(cors());
+
+// Capture raw body for Stripe webhook signature verification
+app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -83,6 +87,15 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
     } catch (e) {}
     try {
       await pool.query('ALTER TABLE OHProviderLocations ADD COLUMN longitude DECIMAL(11, 8) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE OHProviders ADD COLUMN stripe_customer_id VARCHAR(255) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE OHProviders ADD COLUMN stripe_subscription_id VARCHAR(255) NULL');
+    } catch (e) {}
+    try {
+      await pool.query("ALTER TABLE OHProviders ADD COLUMN subscription_status VARCHAR(50) DEFAULT 'inactive'");
     } catch (e) {}
     try {
       await pool.query('ALTER TABLE Referrals ADD COLUMN employee_count INT NOT NULL DEFAULT 1');

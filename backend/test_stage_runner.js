@@ -266,6 +266,51 @@ async function runStages() {
     // Reset Manchester radius back to 50 miles for subsequent referral matching stages
     await api.put(`/provider/location/${loc2.id}`, { coverageRadius: 50 }, { headers: { 'x-auth-token': provToken } });
 
+    // 2.9 Stripe Webhook & Automated Subscription Lifecycle
+    const stripeWebhookCheckoutRes = await api.post('/webhooks/stripe', {
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          client_reference_id: String(1), // Provider ID 1
+          customer: 'cus_test_mock_12345',
+          subscription: 'sub_test_mock_67890',
+          metadata: { providerId: '1' }
+        }
+      }
+    });
+    assert(stripeWebhookCheckoutRes.status === 200, 'Stripe checkout.session.completed webhook processed successfully');
+
+    const subSummaryAfterStripe = await api.get('/provider/subscription/summary', { headers: { 'x-auth-token': provToken } });
+    assert(subSummaryAfterStripe.data.isSubscribed === true, 'Provider is now active Pro subscriber via Stripe Checkout');
+    assert(subSummaryAfterStripe.data.stripeCustomerId === 'cus_test_mock_12345', 'Stripe customer ID linked to provider');
+
+    // Test invoice.payment_succeeded webhook
+    const stripeInvoiceRes = await api.post('/webhooks/stripe', {
+      type: 'invoice.payment_succeeded',
+      data: {
+        object: {
+          customer: 'cus_test_mock_12345',
+          amount_paid: 5000
+        }
+      }
+    });
+    assert(stripeInvoiceRes.status === 200, 'Stripe invoice.payment_succeeded webhook processed successfully');
+
+    // Test customer.subscription.deleted webhook
+    const stripeCancelRes = await api.post('/webhooks/stripe', {
+      type: 'customer.subscription.deleted',
+      data: {
+        object: {
+          customer: 'cus_test_mock_12345',
+          id: 'sub_test_mock_67890'
+        }
+      }
+    });
+    assert(stripeCancelRes.status === 200, 'Stripe customer.subscription.deleted webhook processed successfully');
+
+    const subSummaryAfterCancel = await api.get('/provider/subscription/summary', { headers: { 'x-auth-token': provToken } });
+    assert(subSummaryAfterCancel.data.isSubscribed === false, 'Provider is marked inactive following Stripe subscription cancellation');
+
     // =========================================================================
     // STAGE 3: Referral Dispatch & Spatial/Service Matching
     // =========================================================================
@@ -774,6 +819,8 @@ app.use('/api/auth/passkey', passkeyRoutes);
 app.use('/api/passkey', passkeyRoutes);
 app.use('/api/business', businessRoutes);
 app.use('/api/provider', providerRoutes);
+app.use('/api', providerRoutes);
+app.use('/api', businessRoutes);
 app.use('/api', referralRoutes);
 app.use('/api', adminRoutes);
 

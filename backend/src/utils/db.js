@@ -296,14 +296,74 @@ const mockPool = {
         return [{ affectedRows: prov ? 1 : 0 }];
       }
 
+      if (/^update\s+ohproviders\b/i.test(normalizedSql) && (normalizedSql.includes('where stripe_subscription_id =') || normalizedSql.includes('or stripe_customer_id ='))) {
+        const subId = params[params.length - 2];
+        const custId = params[params.length - 1];
+        const prov = memoryDb.OHProviders.find(p => 
+          (subId && String(p.stripe_subscription_id) === String(subId)) || 
+          (custId && String(p.stripe_customer_id) === String(custId)) ||
+          (subId && String(p.stripe_customer_id) === String(subId))
+        );
+        if (prov) {
+          prov.is_subscribed = Boolean(params[0]);
+          if (params.length > 2) prov.subscription_status = params[1];
+        }
+        return [{ affectedRows: prov ? 1 : 0 }];
+      }
+
+      if (/^update\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('where stripe_customer_id =')) {
+        const customerId = params[params.length - 1];
+        const prov = memoryDb.OHProviders.find(p => String(p.stripe_customer_id) === String(customerId));
+        if (prov) {
+          if (normalizedSql.includes('subscription_status = ?') && !normalizedSql.includes('is_subscribed')) {
+            prov.subscription_status = params[0];
+          } else if (normalizedSql.includes('is_subscribed = ?')) {
+            prov.is_subscribed = Boolean(params[0]);
+            if (params.length > 2) prov.subscription_status = params[1];
+          }
+        }
+        return [{ affectedRows: prov ? 1 : 0 }];
+      }
+
+      if (/^update\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('is_subscribed =') && normalizedSql.includes('stripe_customer_id')) {
+        const [is_subscribed, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_expiry, id] = params;
+        const targetId = id || params[params.length - 1];
+        const prov = memoryDb.OHProviders.find(p => String(p.id) === String(targetId));
+        if (prov) {
+          prov.is_subscribed = Boolean(is_subscribed);
+          prov.stripe_customer_id = stripe_customer_id;
+          prov.stripe_subscription_id = stripe_subscription_id;
+          prov.subscription_status = subscription_status;
+          prov.subscription_expiry = subscription_expiry;
+        }
+        return [{ affectedRows: prov ? 1 : 0 }];
+      }
+
+      if (/^update\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('stripe_customer_id =') && !normalizedSql.includes('is_subscribed')) {
+        const [stripe_customer_id, id] = params;
+        const prov = memoryDb.OHProviders.find(p => String(p.id) === String(id));
+        if (prov) {
+          prov.stripe_customer_id = stripe_customer_id;
+        }
+        return [{ affectedRows: prov ? 1 : 0 }];
+      }
+
       if (/^update\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('is_subscribed =')) {
-        const [is_subscribed, subscription_expiry, id] = params;
+        const is_subscribed = params[0];
+        const subscription_expiry = params[1];
+        const id = params[params.length - 1];
         const prov = memoryDb.OHProviders.find(p => String(p.id) === String(id));
         if (prov) {
           prov.is_subscribed = Boolean(is_subscribed);
           prov.subscription_expiry = subscription_expiry;
         }
         return [{ affectedRows: prov ? 1 : 0 }];
+      }
+
+      if (/\bfrom\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('stripe_customer_id =')) {
+        const customerId = params[0];
+        const results = memoryDb.OHProviders.filter(p => String(p.stripe_customer_id) === String(customerId));
+        return [results];
       }
 
       if (/\bfrom\s+ohproviders\b/i.test(normalizedSql) && normalizedSql.includes('user_id =')) {
@@ -783,6 +843,9 @@ async function initPgSchema(client) {
         phone VARCHAR(50),
         is_subscribed BOOLEAN DEFAULT TRUE,
         subscription_expiry TIMESTAMP,
+        stripe_customer_id VARCHAR(255),
+        stripe_subscription_id VARCHAR(255),
+        subscription_status VARCHAR(50) DEFAULT 'inactive',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 

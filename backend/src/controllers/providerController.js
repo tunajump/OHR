@@ -308,6 +308,9 @@ exports.getSubscriptionSummary = async (req, res) => {
     res.json({
       isSubscribed: Boolean(provider.is_subscribed),
       subscriptionExpiry: provider.subscription_expiry,
+      stripeCustomerId: provider.stripe_customer_id || null,
+      stripeSubscriptionId: provider.stripe_subscription_id || null,
+      subscriptionStatus: provider.subscription_status || (provider.is_subscribed ? 'active' : 'inactive'),
       tier: provider.is_subscribed ? (totalMonthlyCost >= 300 ? 'Nationwide Pro' : 'Radius-Based Pro') : 'Free Tier',
       totalMonthlyCost,
       itemizedLocations,
@@ -343,6 +346,239 @@ exports.deleteProviderLocation = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
+  }
+};
+
+const stripe = require('../utils/stripe');
+
+exports.createCheckoutSession = async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    const [providers] = await pool.query('SELECT * FROM OHProviders WHERE user_id = ?', [userId]);
+    if (providers.length === 0) {
+      return res.status(404).json({ message: 'Provider profile not found. Please complete profile first.' });
+    }
+    const provider = providers[0];
+
+    const [locations] = await pool.query('SELECT * FROM OHProviderLocations WHERE provider_id = ?', [provider.id]);
+    if (!locations || locations.length === 0) {
+      return res.status(400).json({ message: 'Please add at least one clinic location in your dashboard before starting a subscription.' });
+    }
+
+    const [users] = await pool.query('SELECT email FROM Users WHERE id = ?', [userId]);
+    const userEmail = users && users[0] ? users[0].email : '';
+
+    let customerId = provider.stripe_customer_id;
+    if (!customerId) {
+      try {
+        const customer = await stripe.customers.create({
+          email: userEmail,
+          name: provider.company_name,
+          metadata: {
+            providerId: String(provider.id),
+            userId: String(userId)
+          }
+        });
+        customerId = customer.id;
+        await pool.query('UPDATE OHProviders SET stripe_customer_id = ? WHERE id = ?', [customerId, provider.id]);
+      } catch (custErr) {
+        console.warn('Notice creating Stripe customer:', custErr.message);
+      }
+    }
+
+    const line_items = locations.map(loc => {
+      const radius = Number(loc.coverage_radius) || 30;
+      const priceInPounds = calculateRadiusPrice(radius);
+      const isNationwide = radius >= 500;
+      return {
+        price_data: {
+          currency: 'gbp',
+          product_data: {
+            name: `OH Clinic Coverage: ${isNationwide ? 'Nationwide UK' : `${radius} Mile Radius`}`,
+            description: `Location: ${loc.address || loc.city || 'Clinic'} (${loc.postal_code})`
+          },
+          unit_amount: priceInPounds * 100, // Stripe expects amounts in pence
+          recurring: {
+            interval: 'month'
+          }
+        },
+        quantity: 1
+      };
+    });
+
+    const clientOrigin = req.headers.origin || req.headers.referer || process.env.FRONTEND_URL || 'http://localhost:3000';
+    const baseUrl = clientOrigin.replace(/\/+$/, '');
+
+    const sessionParams = {
+      payment_method_types: ['card', 'bacs_debit'],
+      mode: 'subscription',
+      line_items,
+      client_reference_id: String(provider.id),
+      metadata: {
+        providerId: String(provider.id),
+        userId: String(userId)
+      },
+      subscription_data: {
+        metadata: {
+          providerId: String(provider.id),
+          userId: String(userId)
+        }
+      },
+      success_url: `${baseUrl}/dashboard?session_id={CHECKOUT_SESSION_ID}&subscription_status=success`,
+      cancel_url: `${baseUrl}/dashboard?subscription_status=cancelled`
+    };
+
+    if (customerId) {
+      sessionParams.customer = customerId;
+    } else if (userEmail) {
+      sessionParams.customer_email = userEmail;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+
+    res.json({
+      url: session.url,
+      sessionId: session.id
+    });
+  } catch (error) {
+    console.error('Stripe Checkout Session Error:', error);
+    res.status(500).json({ message: 'Unable to initialize Stripe checkout', error: error.message });
+  }
+};
+
+exports.createPortalSession = async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    const [providers] = await pool.query('SELECT * FROM OHProviders WHERE user_id = ?', [userId]);
+    if (providers.length === 0) {
+      return res.status(404).json({ message: 'Provider profile not found' });
+    }
+    const provider = providers[0];
+
+    if (!provider.stripe_customer_id) {
+      return res.status(400).json({ message: 'No active Stripe billing customer found. Please subscribe first.' });
+    }
+
+    const clientOrigin = req.headers.origin || req.headers.referer || process.env.FRONTEND_URL || 'http://localhost:3000';
+    const returnUrl = `${clientOrigin.replace(/\/+$/, '')}/dashboard`;
+
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: provider.stripe_customer_id,
+      return_url: returnUrl
+    });
+
+    res.json({ url: portalSession.url });
+  } catch (error) {
+    console.error('Stripe Customer Portal Error:', error);
+    res.status(500).json({ message: 'Unable to open Stripe Customer Portal', error: error.message });
+  }
+};
+
+exports.handleStripeWebhook = async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  let event;
+
+  try {
+    if (webhookSecret && sig) {
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } else {
+      // In development or when webhook secret is pending, parse payload safely
+      event = typeof req.body === 'string' || Buffer.isBuffer(req.body) 
+        ? JSON.parse(req.body.toString('utf8')) 
+        : req.body;
+    }
+  } catch (err) {
+    console.error('⚠️ Stripe Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  try {
+    const eventType = event.type;
+    console.log(`🔔 Stripe Webhook Received: ${eventType}`);
+
+    switch (eventType) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const providerId = session.client_reference_id || session.metadata?.providerId;
+        const customerId = session.customer;
+        const subscriptionId = session.subscription;
+        const expiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+
+        if (providerId) {
+          await pool.query(
+            'UPDATE OHProviders SET is_subscribed = ?, stripe_customer_id = ?, stripe_subscription_id = ?, subscription_status = ?, subscription_expiry = ? WHERE id = ?',
+            [true, customerId, subscriptionId, 'active', expiryDate, providerId]
+          );
+          console.log(`✅ Provider ID ${providerId} subscription activated via Stripe Checkout (Sub: ${subscriptionId})`);
+        }
+        break;
+      }
+
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object;
+        const customerId = subscription.customer;
+        const status = subscription.status; // 'active', 'past_due', 'canceled', 'trialing'
+        const isSubscribed = status === 'active' || status === 'trialing';
+
+        await pool.query(
+          'UPDATE OHProviders SET is_subscribed = ?, subscription_status = ? WHERE stripe_customer_id = ?',
+          [isSubscribed, status, customerId]
+        );
+        console.log(`🔄 Provider subscription updated: Customer ${customerId} -> Status: ${status}`);
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object;
+        const customerId = subscription.customer;
+        const subscriptionId = subscription.id;
+
+        await pool.query(
+          'UPDATE OHProviders SET is_subscribed = ?, subscription_status = ? WHERE stripe_subscription_id = ? OR stripe_customer_id = ?',
+          [false, 'canceled', subscriptionId, customerId]
+        );
+        console.log(`🛑 Provider subscription canceled: Customer ${customerId} / Sub ${subscriptionId}`);
+        break;
+      }
+
+      case 'invoice.payment_succeeded': {
+        const invoice = event.data.object;
+        const customerId = invoice.customer;
+        if (customerId) {
+          await pool.query(
+            'UPDATE OHProviders SET is_subscribed = ?, subscription_status = ? WHERE stripe_customer_id = ?',
+            [true, 'active', customerId]
+          );
+          console.log(`💳 Invoice payment succeeded for Customer ${customerId}`);
+        }
+        break;
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object;
+        const customerId = invoice.customer;
+        if (customerId) {
+          await pool.query(
+            'UPDATE OHProviders SET subscription_status = ? WHERE stripe_customer_id = ?',
+            ['past_due', customerId]
+          );
+          console.warn(`⚠️ Invoice payment failed for Customer ${customerId} (marked past_due)`);
+        }
+        break;
+      }
+
+      default:
+        console.log(`ℹ️ Unhandled Stripe event: ${eventType}`);
+    }
+
+    res.json({ received: true });
+  } catch (processErr) {
+    console.error('Error processing Stripe webhook event:', processErr);
+    res.status(500).json({ message: 'Webhook processing error', error: processErr.message });
   }
 };
 
