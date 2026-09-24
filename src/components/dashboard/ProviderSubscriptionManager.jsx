@@ -47,6 +47,7 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
   const [updatingId, setUpdatingId] = useState(null);
   const [actionMsg, setActionMsg] = useState('');
   const [actionError, setActionError] = useState('');
+  const [syncingStripe, setSyncingStripe] = useState(false);
   const [editingRadiusMap, setEditingRadiusMap] = useState({});
 
   const isSubscribed = Boolean(profile?.is_subscribed || summary?.isSubscribed);
@@ -60,18 +61,48 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
     }
   };
 
-  useEffect(() => {
-    fetchSummary();
-
-    // Check if returning from Stripe Checkout success
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('subscription_status') === 'success') {
-      setActionMsg('🎉 Subscription activated successfully via Stripe Checkout! Welcome to Pro.');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (urlParams.get('subscription_status') === 'cancelled') {
-      setActionError('Stripe Checkout was cancelled. Your account remains on the Free Match Preview tier.');
-      window.history.replaceState({}, document.title, window.location.pathname);
+  const handleSyncStripeStatus = async (sessionId = null) => {
+    setSyncingStripe(true);
+    setActionMsg('');
+    setActionError('');
+    try {
+      const res = await api.post('/provider/subscription/verify-session', { sessionId });
+      if (res.data?.isSubscribed) {
+        setActionMsg('🎉 Active Stripe subscription verified & synced! Pro features unlocked.');
+      } else {
+        setActionMsg(res.data?.message || 'Subscription status refreshed.');
+      }
+      await fetchSummary();
+      if (onSubscriptionUpdated) {
+        onSubscriptionUpdated();
+      }
+    } catch (err) {
+      console.warn('Sync Stripe error:', err);
+      setActionError(err.response?.data?.message || 'Unable to sync with Stripe.');
+    } finally {
+      setSyncingStripe(false);
     }
+  };
+
+  useEffect(() => {
+    const handleReturnFromStripe = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const subStatus = urlParams.get('subscription_status');
+      const sessionId = urlParams.get('session_id');
+
+      if (subStatus === 'success' || sessionId) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        await handleSyncStripeStatus(sessionId);
+      } else if (subStatus === 'cancelled') {
+        setActionError('Stripe Checkout was cancelled. Your account remains on the Free Match Preview tier.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+        await fetchSummary();
+      } else {
+        await fetchSummary();
+      }
+    };
+
+    handleReturnFromStripe();
   }, [locations, profile]);
 
   const handleUpdateRadius = async (locationId, newRadius) => {
@@ -244,10 +275,24 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
             </button>
             <button
               type="button"
+              onClick={() => handleSyncStripeStatus()}
+              disabled={syncingStripe}
+              className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl px-3 py-2 transition-all flex items-center justify-center gap-1.5"
+              title="Verify & Sync Live Stripe Subscription"
+            >
+              {syncingStripe ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+              <span>Sync with Stripe</span>
+            </button>
+            <button
+              type="button"
               onClick={() => handleToggleSubscription(true)}
               disabled={loading || locList.length === 0}
               className="text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 transition-all flex items-center justify-center gap-1.5"
-              title="Instant Direct Activation"
+              title="Instant Direct Activation (Test Mode)"
             >
               <span>Instant Activate</span>
             </button>
@@ -281,6 +326,16 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
                 <span>Manage Billing & VAT Invoices</span>
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => handleSyncStripeStatus()}
+              disabled={syncingStripe}
+              className="text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 transition-all flex items-center justify-center gap-1.5"
+              title="Sync Status with Stripe"
+            >
+              {syncingStripe ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              <span>Sync Stripe</span>
+            </button>
             <button
               type="button"
               onClick={() => handleToggleSubscription(false)}

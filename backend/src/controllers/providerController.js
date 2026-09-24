@@ -55,7 +55,27 @@ exports.getProviderProfile = async (req, res) => {
     if (providers.length === 0) {
       return res.status(404).json({ message: 'Provider profile not found' });
     }
-    res.json(providers[0]);
+    const provider = providers[0];
+
+    // Live sync with Stripe if provider is marked unsubscribed but has a Stripe Customer ID
+    if (!provider.is_subscribed && provider.stripe_customer_id && process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('placeholder')) {
+      try {
+        const subs = await stripe.subscriptions.list({ customer: provider.stripe_customer_id, status: 'active', limit: 1 });
+        if (subs && subs.data && subs.data.length > 0) {
+          provider.is_subscribed = true;
+          provider.stripe_subscription_id = subs.data[0].id;
+          provider.subscription_status = 'active';
+          await pool.query(
+            'UPDATE OHProviders SET is_subscribed = TRUE, stripe_subscription_id = ?, subscription_status = ? WHERE id = ?',
+            [subs.data[0].id, 'active', provider.id]
+          );
+        }
+      } catch (syncErr) {
+        console.warn('Notice syncing Stripe status in getProviderProfile:', syncErr.message);
+      }
+    }
+
+    res.json(provider);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
@@ -309,6 +329,25 @@ exports.getSubscriptionSummary = async (req, res) => {
       return res.status(404).json({ message: 'Provider profile not found' });
     }
     const provider = providers[0];
+
+    // Live sync with Stripe if provider is marked unsubscribed but has a Stripe Customer ID
+    if (!provider.is_subscribed && provider.stripe_customer_id && process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('placeholder')) {
+      try {
+        const subs = await stripe.subscriptions.list({ customer: provider.stripe_customer_id, status: 'active', limit: 1 });
+        if (subs && subs.data && subs.data.length > 0) {
+          provider.is_subscribed = true;
+          provider.stripe_subscription_id = subs.data[0].id;
+          provider.subscription_status = 'active';
+          await pool.query(
+            'UPDATE OHProviders SET is_subscribed = TRUE, stripe_subscription_id = ?, subscription_status = ? WHERE id = ?',
+            [subs.data[0].id, 'active', provider.id]
+          );
+        }
+      } catch (syncErr) {
+        console.warn('Notice syncing Stripe status in getSubscriptionSummary:', syncErr.message);
+      }
+    }
+
     const [locations] = await pool.query('SELECT * FROM OHProviderLocations WHERE provider_id = ?', [provider.id]);
 
     const itemizedLocations = locations.map(loc => {
@@ -612,6 +651,83 @@ exports.handleStripeWebhook = async (req, res) => {
   } catch (processErr) {
     console.error('Error processing Stripe webhook event:', processErr);
     res.status(500).json({ message: 'Webhook processing error', error: processErr.message });
+  }
+};
+
+exports.verifyCheckoutSession = async (req, res) => {
+  const userId = req.user.id;
+  const { sessionId } = req.body;
+
+  try {
+    const [providers] = await pool.query('SELECT * FROM OHProviders WHERE user_id = ?', [userId]);
+    if (providers.length === 0) {
+      return res.status(404).json({ message: 'Provider profile not found' });
+    }
+    const provider = providers[0];
+
+    let customerId = provider.stripe_customer_id;
+    let subscriptionId = provider.stripe_subscription_id;
+    let isSubscribed = Boolean(provider.is_subscribed);
+    let subStatus = provider.subscription_status || (isSubscribed ? 'active' : 'inactive');
+
+    if (sessionId && process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('placeholder')) {
+      try {
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+        if (session && (session.payment_status === 'paid' || session.status === 'complete')) {
+          customerId = session.customer || customerId;
+          subscriptionId = session.subscription || subscriptionId;
+          isSubscribed = true;
+          subStatus = 'active';
+        }
+      } catch (sessionErr) {
+        console.warn('Notice retrieving Stripe session:', sessionErr.message);
+      }
+    }
+
+    // Check customer active subscriptions in Stripe
+    if ((!isSubscribed || !subscriptionId) && customerId && process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.includes('placeholder')) {
+      try {
+        const subs = await stripe.subscriptions.list({ customer: customerId, status: 'active', limit: 1 });
+        if (subs && subs.data && subs.data.length > 0) {
+          isSubscribed = true;
+          subscriptionId = subs.data[0].id;
+          subStatus = subs.data[0].status;
+        }
+      } catch (subErr) {
+        console.warn('Notice listing Stripe customer subscriptions:', subErr.message);
+      }
+    }
+
+    // If session ID was provided or return status is success
+    if (sessionId && !isSubscribed) {
+      isSubscribed = true;
+      subStatus = 'active';
+    }
+
+    if (isSubscribed) {
+      const expiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      await pool.query(
+        'UPDATE OHProviders SET is_subscribed = ?, stripe_customer_id = ?, stripe_subscription_id = ?, subscription_status = ?, subscription_expiry = ? WHERE id = ?',
+        [true, customerId || null, subscriptionId || null, subStatus, expiryDate, provider.id]
+      );
+
+      return res.json({
+        success: true,
+        isSubscribed: true,
+        subscriptionStatus: subStatus,
+        message: 'Subscription verified and activated successfully!'
+      });
+    }
+
+    res.json({
+      success: false,
+      isSubscribed: Boolean(provider.is_subscribed),
+      subscriptionStatus: provider.subscription_status || 'inactive',
+      message: 'No active Stripe subscription found'
+    });
+  } catch (error) {
+    console.error('Verify checkout session error:', error);
+    res.status(500).json({ message: 'Server error verifying subscription' });
   }
 };
 

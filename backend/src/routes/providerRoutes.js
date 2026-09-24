@@ -6,6 +6,7 @@ const {
   getSubscriptionSummary,
   createCheckoutSession,
   createPortalSession,
+  verifyCheckoutSession,
   handleStripeWebhook,
   addProviderLocation, 
   getProviderLocations,
@@ -25,6 +26,8 @@ router.post('/subscription/create-checkout-session', auth, createCheckoutSession
 router.post('/subscription/checkout', auth, createCheckoutSession);
 router.post('/subscription/create-portal-session', auth, createPortalSession);
 router.post('/subscription/portal', auth, createPortalSession);
+router.post('/subscription/verify-session', auth, verifyCheckoutSession);
+router.post('/subscription/verify', auth, verifyCheckoutSession);
 router.post('/webhooks/stripe', handleStripeWebhook);
 
 router.post('/subscribe', auth, updateSubscription);
