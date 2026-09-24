@@ -14,6 +14,7 @@ import {
   Compass, 
   RefreshCw, 
   Trash2, 
+  Edit3,
   Check, 
   X, 
   CreditCard, 
@@ -42,10 +43,12 @@ const ProviderDashboard = () => {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [editingLocation, setEditingLocation] = useState(null);
+  const [isSavingLocation, setIsSavingLocation] = useState(false);
   const [requestingMap, setRequestingMap] = useState({});
 
-  // New location form with multi-service support
-  const [newLocation, setNewLocation] = useState({
+  // Location form state for both Add and Edit
+  const [locationForm, setLocationForm] = useState({
     address: '',
     city: '',
     state: '',
@@ -85,8 +88,40 @@ const ProviderDashboard = () => {
     fetchData();
   }, [fetchData]);
 
+  const handleOpenAddLocation = () => {
+    setEditingLocation(null);
+    setLocationForm({
+      address: '',
+      city: '',
+      state: '',
+      country: 'United Kingdom',
+      postalCode: '',
+      coverageRadius: '30',
+      services: ['Management Referrals', 'Health Surveillance']
+    });
+    setError('');
+    setIsLocationModalOpen(true);
+  };
+
+  const handleOpenEditLocation = (loc) => {
+    setEditingLocation(loc);
+    setLocationForm({
+      address: loc.address || '',
+      city: loc.city || '',
+      state: loc.state || '',
+      country: loc.country || 'United Kingdom',
+      postalCode: loc.postal_code || loc.postalCode || '',
+      coverageRadius: String(loc.coverage_radius || loc.coverageRadius || 30),
+      services: Array.isArray(loc.services) && loc.services.length > 0 
+        ? [...loc.services] 
+        : ['Management Referrals', 'Health Surveillance']
+    });
+    setError('');
+    setIsLocationModalOpen(true);
+  };
+
   const handleToggleService = (service) => {
-    setNewLocation(prev => {
+    setLocationForm(prev => {
       const exists = prev.services.includes(service);
       const updated = exists 
         ? prev.services.filter(s => s !== service)
@@ -95,32 +130,39 @@ const ProviderDashboard = () => {
     });
   };
 
-  const handleAddLocation = async (e) => {
+  const handleSaveLocation = async (e) => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
+    setIsSavingLocation(true);
 
-    if (newLocation.services.length === 0) {
+    if (locationForm.services.length === 0) {
       setError('Please select at least one service covered by this clinic location.');
+      setIsSavingLocation(false);
       return;
     }
 
     try {
-      await api.post('/provider/location', newLocation);
+      if (editingLocation) {
+        await api.put(`/provider/location/${editingLocation.id}`, {
+          ...locationForm,
+          coverageRadius: Number(locationForm.coverageRadius)
+        });
+        setSuccessMsg(`Clinic location "${locationForm.address || locationForm.city || 'Location'}" updated successfully!`);
+      } else {
+        await api.post('/provider/location', {
+          ...locationForm,
+          coverageRadius: Number(locationForm.coverageRadius)
+        });
+        setSuccessMsg('Clinic location and service capabilities added successfully!');
+      }
       setIsLocationModalOpen(false);
-      setSuccessMsg('Clinic location and service capabilities added successfully!');
-      setNewLocation({
-        address: '',
-        city: '',
-        state: '',
-        country: 'United Kingdom',
-        postalCode: '',
-        coverageRadius: '30',
-        services: ['Management Referrals', 'Health Surveillance']
-      });
-      fetchData();
+      setEditingLocation(null);
+      await fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Error adding provider location.');
+      setError(err.response?.data?.message || 'Error saving provider location.');
+    } finally {
+      setIsSavingLocation(false);
     }
   };
 
@@ -226,7 +268,7 @@ const ProviderDashboard = () => {
             </button>
 
             <button
-              onClick={() => setIsLocationModalOpen(true)}
+              onClick={handleOpenAddLocation}
               className="btn-primary text-xs px-4 py-2 flex items-center gap-1.5"
             >
               <Plus className="w-4 h-4" />
@@ -267,7 +309,7 @@ const ProviderDashboard = () => {
               </div>
             </div>
             <button
-              onClick={() => setIsLocationModalOpen(true)}
+              onClick={handleOpenAddLocation}
               className="btn-primary py-2.5 px-5 text-xs font-semibold flex items-center gap-2 whitespace-nowrap shadow-md hover:shadow-lg"
             >
               <Plus className="w-4 h-4" />
@@ -285,12 +327,12 @@ const ProviderDashboard = () => {
                 <span>Clinic Locations & Services Covered</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Each clinic location specifies its operational coverage radius in miles and the exact Occupational Health services it handles.
+                Each clinic location specifies its operational coverage radius in miles, address details, and the exact Occupational Health services it handles.
               </p>
             </div>
 
             <button
-              onClick={() => setIsLocationModalOpen(true)}
+              onClick={handleOpenAddLocation}
               className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -310,11 +352,11 @@ const ProviderDashboard = () => {
                       <div>
                         <h3 className="font-bold text-slate-900 text-sm">{loc.address || 'Clinic Branch'}</h3>
                         <p className="text-xs text-slate-500 font-mono mt-0.5">
-                          {loc.city && `${loc.city}, `}{loc.postal_code}
+                          {loc.city && `${loc.city}, `}{loc.postal_code || loc.postalCode}
                         </p>
                       </div>
                       <span className="badge bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-bold">
-                        {loc.coverage_radius || 30} miles radius
+                        {loc.coverage_radius || loc.coverageRadius || 30} miles radius
                       </span>
                     </div>
 
@@ -350,10 +392,21 @@ const ProviderDashboard = () => {
                     </div>
                   </div>
 
-                  <div className="pt-2 flex justify-end">
+                  <div className="pt-3 flex items-center justify-between border-t border-slate-200/70">
                     <button
+                      type="button"
+                      onClick={() => handleOpenEditLocation(loc)}
+                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100/80 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"
+                      title="Edit Address, Postcode, Radius & Services"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit Location</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => handleDeleteLocation(loc.id)}
-                      className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 p-1 rounded hover:bg-red-50"
+                      className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 px-2 py-1 rounded hover:bg-red-50 transition-colors"
                       title="Remove Location"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -370,7 +423,7 @@ const ProviderDashboard = () => {
                 No clinic locations registered yet. Add your primary clinic location to begin receiving referral matches.
               </p>
               <button
-                onClick={() => setIsLocationModalOpen(true)}
+                onClick={handleOpenAddLocation}
                 className="btn-secondary text-xs px-4 py-2 inline-flex items-center gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -448,125 +501,92 @@ const ProviderDashboard = () => {
                             )) || <span className="badge bg-blue-50 text-blue-700 border border-blue-200 font-semibold">Management Referral</span>}
                           </div>
                           {isChosen && (
-                            <div className="mt-2.5 p-3 rounded-xl bg-emerald-50/90 border border-emerald-200 text-emerald-950 space-y-1.5 shadow-2xs">
-                              <div className="font-bold flex items-center gap-1.5 text-xs text-emerald-950">
-                                <Building2 className="w-4 h-4 text-emerald-700 flex-shrink-0" />
-                                <span>{item.company_name || 'Client Business'}</span>
+                            <div className="mt-2 p-2 rounded-lg bg-emerald-100/70 border border-emerald-300/80 space-y-1 text-emerald-950 font-sans">
+                              <div className="flex items-center gap-1 font-bold text-emerald-900">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>You Have Been Selected! Employer Contact Unlocked:</span>
                               </div>
-                              {item.location_address && (
-                                <div className="text-[11px] text-emerald-900 flex items-center gap-1">
-                                  <MapPin className="w-3 h-3 text-emerald-600 flex-shrink-0" />
-                                  <span>{item.location_address}, {item.location_city} ({item.location_postal_code})</span>
-                                </div>
-                              )}
-                              <div className="text-[11px] text-emerald-900 flex flex-wrap items-center gap-x-3 gap-y-0.5 pt-0.5 border-t border-emerald-200/60">
-                                <div className="flex items-center gap-1">
-                                  <User className="w-3 h-3 text-emerald-600" />
-                                  <span><strong>Contact:</strong> {item.contact_name || item.contact_person || 'HR Referrer'}</span>
-                                </div>
-                                {item.contact_phone && (
-                                  <div className="flex items-center gap-1">
-                                    <Phone className="w-3 h-3 text-emerald-600" />
-                                    <span>{item.contact_phone}</span>
-                                  </div>
-                                )}
-                                {item.contact_email && (
-                                  <div className="flex items-center gap-1">
-                                    <Mail className="w-3 h-3 text-emerald-600" />
-                                    <span>{item.contact_email}</span>
-                                  </div>
-                                )}
+                              <div className="text-[11px] grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-0.5">
+                                <div><span className="text-emerald-800 font-medium">Company:</span> <strong className="font-bold">{item.company_name || 'Direct Employer'}</strong></div>
+                                <div><span className="text-emerald-800 font-medium">Contact:</span> <strong className="font-bold">{item.contact_name || 'HR Manager'}</strong></div>
+                                <div><span className="text-emerald-800 font-medium">Email:</span> <a href={`mailto:${item.contact_email}`} className="text-indigo-700 underline font-semibold">{item.contact_email}</a></div>
+                                <div><span className="text-emerald-800 font-medium">Phone:</span> <a href={`tel:${item.contact_phone}`} className="text-indigo-700 underline font-semibold">{item.contact_phone}</a></div>
                               </div>
                               {item.notes && (
-                                <div className="text-[11px] text-emerald-900/90 italic bg-emerald-100/50 p-2 rounded-lg border border-emerald-200/40">
-                                  <strong>Referral Notes:</strong> &ldquo;{item.notes}&rdquo;
+                                <div className="text-[11px] pt-1 border-t border-emerald-200 text-emerald-900">
+                                  <span className="font-medium">Workplace Notes:</span> <em>"{item.notes}"</em>
                                 </div>
                               )}
                             </div>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 font-medium text-slate-700">
-                          <div className="flex items-center gap-1.5">
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-1.5 font-semibold text-slate-700">
                             <Users className="w-3.5 h-3.5 text-slate-400" />
-                            <span>{item.employee_count || 1} {(item.employee_count || 1) === 1 ? 'employee' : 'employees'}</span>
+                            <span>{item.employee_count || 1} {Number(item.employee_count) === 1 ? 'employee' : 'employees'}</span>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4">
-                          {item.distance ? (
-                            <span className="font-semibold text-slate-800">{Number(item.distance).toFixed(1)} miles away</span>
+                        <td className="py-3.5 px-4 font-semibold text-slate-600">
+                          {item.distance !== undefined && item.distance !== null ? (
+                            <span className="flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-indigo-500" />
+                              <span>{Number(item.distance).toFixed(1)} miles</span>
+                            </span>
                           ) : (
-                            <span className="text-slate-500">{item.postal_code || 'Matched in radius'}</span>
+                            <span className="text-slate-400">Within radius</span>
                           )}
                         </td>
                         <td className="py-3.5 px-4">
                           {isChosen ? (
-                            <div className="space-y-0.5">
-                              <span className="badge bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold flex items-center gap-1 w-fit">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Chosen by Business</span>
-                              </span>
-                              {(item.status === 'closed' || item.is_closed) && (
-                                <span className="badge bg-slate-100 text-slate-600 border border-slate-200 text-[10px]">
-                                  Referral Closed
-                                </span>
-                              )}
-                            </div>
-                          ) : (item.status === 'closed' || item.is_closed) ? (
-                            <span className="badge bg-slate-100 text-slate-600 border border-slate-200">
-                              Closed by Business
+                            <span className="badge bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold flex items-center gap-1 w-max">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Selected by Business
                             </span>
                           ) : isRequested ? (
-                            <div className="space-y-0.5">
-                              <span className="badge bg-blue-100 text-blue-800 border border-blue-200 font-semibold flex items-center gap-1 w-fit">
-                                <Clock className="w-3.5 h-3.5 text-blue-600" />
-                                <span>Consideration Requested</span>
-                              </span>
-                              <p className="text-[10px] text-slate-500">Awaiting business decision</p>
-                            </div>
+                            <span className="badge bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1 w-max">
+                              <Clock className="w-3 h-3" />
+                              Consideration Requested
+                            </span>
                           ) : isNotSelected ? (
-                            <span className="badge bg-slate-100 text-slate-600 border border-slate-200">
-                              Other Provider Chosen
+                            <span className="badge bg-slate-100 text-slate-600 border border-slate-200 w-max">
+                              Another Provider Selected
                             </span>
                           ) : (
-                            <span className="badge bg-indigo-50 text-indigo-700 border border-indigo-200">
-                              Available in Area
+                            <span className="badge bg-blue-100 text-blue-800 border border-blue-200 w-max">
+                              Available to Request
                             </span>
                           )}
                         </td>
                         <td className="py-3.5 px-4 text-right">
                           {isChosen ? (
-                            <span className="text-xs font-bold text-emerald-700">Active Award</span>
-                          ) : (item.status === 'closed' || item.is_closed) ? (
-                            <span className="text-xs text-slate-400">Closed</span>
-                          ) : isRequested ? (
-                            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-[11px] font-semibold cursor-default select-none shadow-2xs">
-                              <Check className="w-3.5 h-3.5 text-blue-600" />
-                              <span>Requested</span>
-                            </div>
-                          ) : isNotSelected ? (
-                            <span className="text-xs text-slate-400">Closed</span>
-                          ) : profile?.is_subscribed ? (
-                            <button
-                              onClick={() => handleRequestConsideration(item.id)}
-                              disabled={requestingMap[item.id]}
-                              className="btn-primary py-1.5 px-3 text-[11px] font-semibold inline-flex items-center gap-1.5 shadow-2xs hover:shadow-xs disabled:opacity-60"
+                            <a
+                              href={`mailto:${item.contact_email}?subject=Occupational Health Appointment - Referral %23${item.id}`}
+                              className="btn-primary py-1.5 px-3 text-xs inline-flex items-center gap-1"
                             >
-                              {requestingMap[item.id] ? (
-                                <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                              ) : (
-                                <Send className="w-3 h-3" />
-                              )}
-                              <span>Request Consideration</span>
-                            </button>
+                              <Mail className="w-3.5 h-3.5" />
+                              <span>Contact Client</span>
+                            </a>
+                          ) : isRequested ? (
+                            <span className="text-xs text-purple-700 font-semibold italic">
+                              Awaiting Employer Decision
+                            </span>
+                          ) : isNotSelected ? (
+                            <span className="text-xs text-slate-400 italic">
+                              Closed
+                            </span>
                           ) : (
                             <button
-                              onClick={() => {
-                                setError('An active subscription is required to request consideration for referrals. Click "Manage Subscription" above to activate.');
-                              }}
-                              className="px-3 py-1.5 text-[11px] font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-xl transition-all inline-flex items-center gap-1.5"
+                              onClick={() => handleRequestConsideration(item.id)}
+                              disabled={!profile?.is_subscribed || Boolean(requestingMap[item.id])}
+                              className="btn-primary py-1.5 px-3 text-xs inline-flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+                              title={!profile?.is_subscribed ? 'Activate subscription to request consideration' : 'Submit your clinic for consideration'}
                             >
-                              <Lock className="w-3 h-3 text-amber-600" />
-                              <span>Subscribe to Request</span>
+                              {requestingMap[item.id] ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Send className="w-3.5 h-3.5" />
+                              )}
+                              <span>Request Consideration</span>
                             </button>
                           )}
                         </td>
@@ -577,25 +597,14 @@ const ProviderDashboard = () => {
               </table>
             </div>
           ) : (
-            <div className="p-8 text-center text-slate-500 space-y-3">
+            <div className="p-8 border border-dashed border-slate-200 rounded-2xl text-center space-y-2">
               <Clock className="w-8 h-8 text-slate-300 mx-auto" />
-              <p className="text-sm font-semibold text-slate-700">No referral requests in your queue right now</p>
-              {locations.length === 0 ? (
-                <div className="space-y-2">
-                  <p className="text-xs text-slate-500 max-w-md mx-auto">
-                    You have not registered any clinic locations yet. Add a clinic location and set your coverage radius to start receiving matched referrals.
-                  </p>
-                  <button
-                    onClick={() => setIsLocationModalOpen(true)}
-                    className="btn-secondary text-xs px-3.5 py-1.5 inline-flex items-center gap-1.5"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add Clinic Location</span>
-                  </button>
-                </div>
-              ) : (
-                <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Your registered clinic location(s) are active. When businesses submit referrals within your coverage radius that match your service capabilities, they will be matched here automatically.
+              <p className="text-xs sm:text-sm text-slate-600 font-medium">
+                No active matching referral requests currently in your area.
+              </p>
+              {locations.length > 0 && (
+                <p className="text-xs text-slate-500">
+                  Make sure your registered clinic postcodes and coverage radiuses encompass the areas you want to serve.
                 </p>
               )}
             </div>
@@ -608,6 +617,7 @@ const ProviderDashboard = () => {
             locations={locations} 
             profile={profile} 
             onSubscriptionUpdated={fetchData} 
+            onEditLocation={handleOpenEditLocation}
           />
         </div>
 
@@ -615,7 +625,7 @@ const ProviderDashboard = () => {
         <PasskeyManager />
       </div>
 
-      {/* Add Location Modal with Multi-Service Selection */}
+      {/* Add / Edit Location Modal with Multi-Service Selection */}
       {isLocationModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-slate-100 relative">
@@ -628,25 +638,29 @@ const ProviderDashboard = () => {
 
             <div className="flex items-center gap-3 mb-6">
               <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
-                <MapPin className="w-5 h-5" />
+                {editingLocation ? <Edit3 className="w-5 h-5" /> : <MapPin className="w-5 h-5" />}
               </div>
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Add Clinic Location</h3>
-                <p className="text-xs text-slate-500">Configure clinic coverage radius and supported OH services</p>
+                <h3 className="text-lg font-bold text-slate-900">
+                  {editingLocation ? 'Edit Clinic Location & Coverage' : 'Add Clinic Location'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {editingLocation ? 'Update clinic address, postcode, coverage radius, and services' : 'Configure clinic coverage radius and supported OH services'}
+                </p>
               </div>
             </div>
 
-            <form onSubmit={handleAddLocation} className="space-y-4">
+            <form onSubmit={handleSaveLocation} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                  Street Address / Clinic Name
+                  Street Address / Clinic Name *
                 </label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. 10 St Pauls Square"
-                  value={newLocation.address}
-                  onChange={(e) => setNewLocation({ ...newLocation, address: e.target.value })}
+                  value={locationForm.address}
+                  onChange={(e) => setLocationForm({ ...locationForm, address: e.target.value })}
                   className="input-field"
                 />
               </div>
@@ -654,14 +668,14 @@ const ProviderDashboard = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                    City / Town
+                    City / Town *
                   </label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. London"
-                    value={newLocation.city}
-                    onChange={(e) => setNewLocation({ ...newLocation, city: e.target.value })}
+                    value={locationForm.city}
+                    onChange={(e) => setLocationForm({ ...locationForm, city: e.target.value })}
                     className="input-field"
                   />
                 </div>
@@ -674,9 +688,9 @@ const ProviderDashboard = () => {
                     type="text"
                     required
                     placeholder="e.g. EC1A 1BB"
-                    value={newLocation.postalCode}
-                    onChange={(e) => setNewLocation({ ...newLocation, postalCode: e.target.value })}
-                    className="input-field"
+                    value={locationForm.postalCode}
+                    onChange={(e) => setLocationForm({ ...locationForm, postalCode: e.target.value.toUpperCase() })}
+                    className="input-field font-mono uppercase"
                   />
                 </div>
               </div>
@@ -686,15 +700,15 @@ const ProviderDashboard = () => {
                   Coverage Radius (Miles from this clinic)
                 </label>
                 <select
-                  value={newLocation.coverageRadius}
-                  onChange={(e) => setNewLocation({ ...newLocation, coverageRadius: e.target.value })}
+                  value={locationForm.coverageRadius}
+                  onChange={(e) => setLocationForm({ ...locationForm, coverageRadius: e.target.value })}
                   className="input-field"
                 >
-                  <option value="10">10 Miles</option>
-                  <option value="30">30 Miles (Standard)</option>
-                  <option value="50">50 Miles</option>
-                  <option value="100">100 Miles</option>
-                  <option value="500">500 Miles (Nationwide)</option>
+                  <option value="10">10 Miles (£10/month)</option>
+                  <option value="30">30 Miles (£20/month - Standard)</option>
+                  <option value="50">50 Miles (£30/month)</option>
+                  <option value="100">100 Miles (£50/month)</option>
+                  <option value="500">500 Miles (£300/month - Nationwide UK)</option>
                 </select>
               </div>
 
@@ -708,7 +722,7 @@ const ProviderDashboard = () => {
                 </p>
                 <div className="space-y-2 pt-1">
                   {AVAILABLE_SERVICES.map((service) => {
-                    const isChecked = newLocation.services.includes(service);
+                    const isChecked = locationForm.services.includes(service);
                     return (
                       <label 
                         key={service}
@@ -735,15 +749,18 @@ const ProviderDashboard = () => {
                 <button
                   type="button"
                   onClick={() => setIsLocationModalOpen(false)}
+                  disabled={isSavingLocation}
                   className="btn-secondary text-xs px-4 py-2"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="btn-primary text-xs px-5 py-2"
+                  disabled={isSavingLocation}
+                  className="btn-primary text-xs px-5 py-2 flex items-center gap-1.5"
                 >
-                  Save Location & Services
+                  {isSavingLocation && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{editingLocation ? 'Save Changes' : 'Add Location'}</span>
                 </button>
               </div>
             </form>

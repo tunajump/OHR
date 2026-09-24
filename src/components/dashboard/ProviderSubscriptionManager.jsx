@@ -39,7 +39,7 @@ export const calculateLocationPrice = (radius) => {
   return 300;
 };
 
-const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscriptionUpdated }) => {
+const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscriptionUpdated, onEditLocation }) => {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
   const [stripeCheckoutLoading, setStripeCheckoutLoading] = useState(false);
@@ -323,9 +323,25 @@ const ProviderSubscriptionManager = ({ locations = [], profile = null, onSubscri
                   return (
                     <tr key={loc.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-3.5 px-4 font-semibold text-slate-900">
-                        <div className="flex items-center gap-2">
-                          <MapPin className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
-                          <span>{loc.address || 'Clinic Location'}</span>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <MapPin className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                            <span>{loc.address || 'Clinic Location'}</span>
+                          </div>
+                          {onEditLocation && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const fullLoc = locations.find(l => String(l.id) === String(loc.id)) || loc;
+                                onEditLocation(fullLoc);
+                              }}
+                              className="text-[11px] text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 font-normal ml-2"
+                              title="Edit address, postcode and services"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                              <span>Edit</span>
+                            </button>
+                          )}
                         </div>
                       </td>
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-700">
