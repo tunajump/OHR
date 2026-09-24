@@ -26,3 +26,29 @@ jest.mock('@simplewebauthn/browser', () => ({
   browserSupportsWebAuthnAutofill: jest.fn().mockResolvedValue(true)
 }), { virtual: true });
 
+// Mock axios globally to handle Jest ESM module import compatibility in react-scripts
+jest.mock('axios', () => {
+  const mockInstance = {
+    get: jest.fn().mockResolvedValue({ data: {} }),
+    post: jest.fn().mockResolvedValue({ data: {} }),
+    put: jest.fn().mockResolvedValue({ data: {} }),
+    delete: jest.fn().mockResolvedValue({ data: {} }),
+    interceptors: {
+      request: { use: jest.fn(), eject: jest.fn() },
+      response: { use: jest.fn(), eject: jest.fn() }
+    }
+  };
+
+  return {
+    __esModule: true,
+    default: {
+      ...mockInstance,
+      create: jest.fn(() => mockInstance)
+    },
+    create: jest.fn(() => mockInstance),
+    get: jest.fn().mockResolvedValue({ data: {} }),
+    post: jest.fn().mockResolvedValue({ data: {} }),
+    put: jest.fn().mockResolvedValue({ data: {} }),
+    delete: jest.fn().mockResolvedValue({ data: {} })
+  };
+});

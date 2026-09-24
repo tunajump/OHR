@@ -23,7 +23,7 @@ const Register = () => {
   const [userType, setUserType] = useState(initialType);
   const [authMethod, setAuthMethod] = useState('passkey'); // 'passkey' (default) or 'password'
 
-  const passkeySupported = isPasskeySupported();
+  const passkeySupported = typeof isPasskeySupported === 'function' ? isPasskeySupported() : false;
 
   useEffect(() => {
     const paramType = searchParams.get('type');
@@ -47,7 +47,8 @@ const Register = () => {
   const navigate = useNavigate();
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e) => {
@@ -96,7 +97,7 @@ const Register = () => {
           phone: trimmedPhone
         });
 
-        if (result.verified && result.token) {
+        if (result && result.verified && result.token) {
           const userData = {
             id: result.userId,
             email: result.email,
@@ -108,7 +109,7 @@ const Register = () => {
           const targetDashboard = result.userType === 'provider' ? '/provider/dashboard' : '/business/dashboard';
           navigate(targetDashboard, { replace: true });
         } else {
-          setError(result.message || 'Passkey registration could not be verified.');
+          setError(result?.message || 'Passkey registration could not be verified.');
         }
       } catch (err) {
         console.error('Passwordless registration failed:', err);

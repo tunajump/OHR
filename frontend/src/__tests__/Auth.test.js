@@ -10,27 +10,28 @@ jest.mock('@simplewebauthn/browser', () => ({
 }), { virtual: true });
 
 jest.mock('../services/passkeyService', () => ({
-  registerPasswordlessUser: jest.fn().mockResolvedValue({
+  __esModule: true,
+  isPasskeySupported: () => true,
+  registerPasswordlessUser: jest.fn((data) => Promise.resolve({
     verified: true,
     token: 'mock_jwt_token',
     userId: 1,
-    userType: 'business',
+    userType: data?.userType || 'business',
     message: 'Account created with Passkey!'
-  }),
-  loginWithPasskey: jest.fn().mockResolvedValue({
+  })),
+  loginWithPasskey: jest.fn(() => Promise.resolve({
     verified: true,
     token: 'mock_jwt_token',
     userType: 'business'
-  }),
-  isPasskeySupported: jest.fn().mockReturnValue(true),
-  getPasskeys: jest.fn().mockResolvedValue([]),
-  registerPasskey: jest.fn().mockResolvedValue({ verified: true })
+  })),
+  getPasskeys: jest.fn(() => Promise.resolve([])),
+  registerPasskey: jest.fn(() => Promise.resolve({ verified: true }))
 }));
 
 import Login from '../components/auth/Login';
 import Register from '../components/auth/Register';
 import AuthContext from '../context/AuthContext';
-import passkeyService from '../services/passkeyService';
+import * as passkeyService from '../services/passkeyService';
 
 describe('Auth Views - Stage Tests', () => {
   // STAGE 1: Login Form Inputs & Submission
