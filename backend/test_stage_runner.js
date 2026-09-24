@@ -723,13 +723,16 @@ async function runStages() {
     console.log('\n====================================================');
     console.log('  ALL STAGES PASSED: Full OHR Test Suite 100% SUCCESS!  ');
     console.log('====================================================\n');
-  } catch (error) {
-    console.error('\n[FATAL ERROR IN STAGE RUNNER]', error.message, error);
-    process.exit(1);
-  } finally {
     if (server) {
       server.close();
     }
+    process.exit(0);
+  } catch (error) {
+    console.error('\n[FATAL ERROR IN STAGE RUNNER]', error.message, error);
+    if (server) {
+      server.close();
+    }
+    process.exit(1);
   }
 }
 
