@@ -251,6 +251,21 @@ async function runStages() {
     assert(loc1 && loc1.services.includes('Management Referrals'), 'London clinic covers Management Referrals');
     assert(loc2 && loc2.services.includes('Preplacements') && !loc2.services.includes('Health Surveillance'), 'Manchester clinic covers Preplacements specifically');
 
+    // 2.7 Verify Cumulative Radius-Based Subscription Summary (London 30 miles = £20 + Manchester 50 miles = £30 => Total £50/m)
+    const subSummaryRes1 = await api.get('/provider/subscription/summary', { headers: { 'x-auth-token': provToken } });
+    assert(subSummaryRes1.status === 200, 'Provider can retrieve subscription summary with 200 OK');
+    assert(subSummaryRes1.data.itemizedLocations.length === 2, 'Summary itemizes all 2 registered clinic locations');
+    assert(subSummaryRes1.data.totalMonthlyCost === 50, 'Initial cumulative subscription correctly totals £50/m (30m @ £20 + 50m @ £30)');
+
+    // 2.8 Update Manchester location radius to 10 miles (£10/m) and verify recalculated cumulative total (£30/m)
+    const updateLocRes = await api.put(`/provider/location/${loc2.id}`, { coverageRadius: 10 }, { headers: { 'x-auth-token': provToken } });
+    assert(updateLocRes.status === 200, 'Provider location radius updated to 10 miles with 200 OK');
+    const subSummaryRes2 = await api.get('/provider/subscription/summary', { headers: { 'x-auth-token': provToken } });
+    assert(subSummaryRes2.data.totalMonthlyCost === 30, 'Recalculated cumulative subscription correctly totals £30/m (30m @ £20 + 10m @ £10)');
+
+    // Reset Manchester radius back to 50 miles for subsequent referral matching stages
+    await api.put(`/provider/location/${loc2.id}`, { coverageRadius: 50 }, { headers: { 'x-auth-token': provToken } });
+
     // =========================================================================
     // STAGE 3: Referral Dispatch & Spatial/Service Matching
     // =========================================================================

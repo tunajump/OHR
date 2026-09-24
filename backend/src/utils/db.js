@@ -436,9 +436,9 @@ const mockPool = {
         return [results];
       }
 
-      if (/\bfrom\s+ohproviderlocations\b/i.test(normalizedSql) && normalizedSql.includes('provider_id =')) {
-        const providerId = params[0];
-        const results = memoryDb.OHProviderLocations.filter(l => String(l.provider_id) === String(providerId));
+      if (/\bfrom\s+ohproviderlocations\b/i.test(normalizedSql) && normalizedSql.includes('where id =') && normalizedSql.includes('provider_id =')) {
+        const [id, providerId] = params;
+        const results = memoryDb.OHProviderLocations.filter(l => String(l.id) === String(id) && String(l.provider_id) === String(providerId));
         return [results];
       }
 
@@ -448,8 +448,30 @@ const mockPool = {
         return [results];
       }
 
+      if (/\bfrom\s+ohproviderlocations\b/i.test(normalizedSql) && normalizedSql.includes('provider_id =')) {
+        const providerId = params[0];
+        const results = memoryDb.OHProviderLocations.filter(l => String(l.provider_id) === String(providerId));
+        return [results];
+      }
+
       if (/\bfrom\s+ohproviderlocations\b/i.test(normalizedSql)) {
         return [memoryDb.OHProviderLocations];
+      }
+
+      if (/^update\s+ohproviderlocations\b/i.test(normalizedSql)) {
+        const [address, city, state, country, postal_code, coverage_radius, latitude, longitude, id, provider_id] = params;
+        const loc = memoryDb.OHProviderLocations.find(l => String(l.id) === String(id) && String(l.provider_id) === String(provider_id));
+        if (loc) {
+          if (address !== undefined) loc.address = address;
+          if (city !== undefined) loc.city = city;
+          if (state !== undefined) loc.state = state;
+          if (country !== undefined) loc.country = country;
+          if (postal_code !== undefined) loc.postal_code = postal_code;
+          if (coverage_radius !== undefined) loc.coverage_radius = Number(coverage_radius);
+          if (latitude !== undefined) loc.latitude = latitude;
+          if (longitude !== undefined) loc.longitude = longitude;
+        }
+        return [{ affectedRows: loc ? 1 : 0 }];
       }
 
       if (/^delete\s+from\s+ohproviderlocations\b/i.test(normalizedSql)) {

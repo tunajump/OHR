@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import PasskeyManager from '../auth/PasskeyManager';
+import ProviderSubscriptionManager from './ProviderSubscriptionManager';
 import { 
   Stethoscope, 
   MapPin, 
@@ -208,7 +209,12 @@ const ProviderDashboard = () => {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={handleToggleSubscription}
+              onClick={() => {
+                const el = document.getElementById('subscription-manager');
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth' });
+                }
+              }}
               className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-all flex items-center gap-1.5 ${
                 profile?.is_subscribed
                   ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
@@ -594,6 +600,15 @@ const ProviderDashboard = () => {
               )}
             </div>
           )}
+        </div>
+
+        {/* SECTION 3: Radius-Based Cumulative Subscription Management */}
+        <div id="subscription-manager">
+          <ProviderSubscriptionManager 
+            locations={locations} 
+            profile={profile} 
+            onSubscriptionUpdated={fetchData} 
+          />
         </div>
 
         {/* Passkeys & Biometric Security Management */}
