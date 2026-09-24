@@ -354,6 +354,12 @@ const stripe = require('../utils/stripe');
 exports.createCheckoutSession = async (req, res) => {
   const userId = req.user.id;
 
+  if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.includes('placeholder')) {
+    return res.status(503).json({
+      message: 'Stripe payments are not configured on the server yet. Please add STRIPE_SECRET_KEY to your Render environment variables.'
+    });
+  }
+
   try {
     const [providers] = await pool.query('SELECT * FROM OHProviders WHERE user_id = ?', [userId]);
     if (providers.length === 0) {
@@ -449,6 +455,12 @@ exports.createCheckoutSession = async (req, res) => {
 
 exports.createPortalSession = async (req, res) => {
   const userId = req.user.id;
+
+  if (!process.env.STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY.includes('placeholder')) {
+    return res.status(503).json({
+      message: 'Stripe portal is not configured on the server yet. Please add STRIPE_SECRET_KEY to your Render environment variables.'
+    });
+  }
 
   try {
     const [providers] = await pool.query('SELECT * FROM OHProviders WHERE user_id = ?', [userId]);
