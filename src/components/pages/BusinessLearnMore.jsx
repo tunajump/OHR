@@ -1,17 +1,24 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import SEO from '../common/SEO';
 
 const BusinessLearnMore = () => {
   return (
     <div className="flex-1 bg-white py-12 px-4 sm:px-6 lg:px-8">
+      <SEO
+        title="Occupational Health for Businesses | Referrals & Health Surveillance | OHReferral"
+        description="Empower your business with accredited OH providers. Resolve employee issues, improve workplace mental health, submit management referrals, and ensure statutory health surveillance."
+        keywords="occupational health, referral, employee issues, mental health, oh provider, health surveillance, sickness absence management"
+      />
+
       <div className="max-w-6xl mx-auto space-y-10">
         {/* Title */}
         <div className="text-center space-y-3">
           <h1 className="text-3xl sm:text-4xl font-extrabold text-[#111827] tracking-tight">
-            Benefits of Occupational Health to your Business
+            Benefits of Occupational Health to Your Business
           </h1>
           <p className="text-base sm:text-lg font-bold text-[#dc2626]">
-            What is the current problem?
+            What is the current challenge for UK employers?
           </p>
         </div>
 
@@ -19,19 +26,19 @@ const BusinessLearnMore = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           <div className="bg-[#fef2f2] border border-[#fee2e2] rounded-xl p-5 shadow-sm flex flex-col justify-start">
             <h3 className="text-base font-bold text-[#1e293b] mb-2">
-              3 in 10 Workers with Long Term Problem
+              3 in 10 Workers with Long Term Problems
             </h3>
             <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
-              30% of workers in a recent survey said they had a physical or mental health problem that they expected to last 12 months or more.
+              30% of workers report a physical or <strong>mental health</strong> problem lasting 12 months or more, creating complex <strong>employee issues</strong> for HR managers.
             </p>
           </div>
 
           <div className="bg-[#fef2f2] border border-[#fee2e2] rounded-xl p-5 shadow-sm flex flex-col justify-start">
             <h3 className="text-base font-bold text-[#1e293b] mb-2">
-              35% of Workers off Sick
+              35% of Workers Off Sick
             </h3>
             <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
-              Around one-third (35%) of workers reported a sickness absence in the past 12 months.
+              Around one-third (35%) of UK employees report sickness absence annually. An early <strong>management referral</strong> helps facilitate a timely return to work.
             </p>
           </div>
 
@@ -40,24 +47,24 @@ const BusinessLearnMore = () => {
               8% on Long Term Sick
             </h3>
             <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
-              Eight per cent of employees had experienced a long-term sickness absence lasting four weeks or more.
+              Eight percent experience sickness absence lasting four weeks or more. Engaging an accredited <strong>OH provider</strong> delivers expert medical guidance.
             </p>
           </div>
 
           <div className="bg-[#fef2f2] border border-[#fee2e2] rounded-xl p-5 shadow-sm flex flex-col justify-start">
             <h3 className="text-base font-bold text-[#1e293b] mb-2">
-              Stress and Anxiety
+              Workplace Stress & Mental Health
             </h3>
             <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
-              A sixth of workers experience a mental health problem at any one time and stress, anxiety and depression are thought to be responsible for almost half of working days lost in Britain due to health issues.
+              One in six workers experience a <strong>mental health</strong> issue at any one time. Stress, anxiety, and depression account for nearly half of all lost working days.
             </p>
           </div>
         </div>
 
-        {/* Green Section Subtitle */}
+        {/* Blue Section Subtitle */}
         <div className="text-center pt-4">
           <p className="text-base sm:text-lg font-bold text-[#2563eb]">
-            How can Occupational Health help?
+            How does an accredited OH Provider help?
           </p>
         </div>
 
@@ -68,34 +75,34 @@ const BusinessLearnMore = () => {
               Increased Productivity
             </h3>
             <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
-              Healthy employees have reduced sick leave (absenteeism) and reduced presenteeism (when an employee is constantly present at work despite being unwell).
+              Healthy employees experience reduced sickness absence and presenteeism. Fast <strong>occupational health</strong> interventions resolve workplace friction quickly.
             </p>
           </div>
 
           <div className="bg-[#f0fdf4] border border-[#dcfce7] rounded-xl p-5 shadow-sm flex flex-col justify-start">
             <h3 className="text-base font-bold text-[#1e293b] mb-2">
-              Legal Compliance
+              HSE & Health Surveillance Compliance
             </h3>
             <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
-              Occupational health supports compliance to a range of legislation and regulations, such as the Equality Act 2010, The Management of Health and Safety at Work Regulations 1999, Health and Safety at Work etc Act 1974, RIDDOR 2013 and other acts owned by the HSE.
+              Statutory <strong>health surveillance</strong> programs ensure compliance with HSE, RIDDOR 2013, COSHH, and the Health & Safety at Work Act 1974.
             </p>
           </div>
 
           <div className="bg-[#f0fdf4] border border-[#dcfce7] rounded-xl p-5 shadow-sm flex flex-col justify-start">
             <h3 className="text-base font-bold text-[#1e293b] mb-2">
-              Corporate reputation
+              Corporate Reputation & Retention
             </h3>
             <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
-              Organisations that look after their employees are more attractive places to work. This in turn and can support the recruitment and retention rates and reduce costs associated with staff turnover.
+              Organisations proactively addressing <strong>employee issues</strong> and <strong>mental health</strong> enjoy higher staff retention and lower recruitment turnover costs.
             </p>
           </div>
 
           <div className="bg-[#f0fdf4] border border-[#dcfce7] rounded-xl p-5 shadow-sm flex flex-col justify-start">
             <h3 className="text-base font-bold text-[#1e293b] mb-2">
-              £5 return for every £1 spent
+              £5 Return for Every £1 Invested
             </h3>
             <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
-              There is a really positive case for Employers investing in Mental Health, with an average return of £5 for every £1 spent on assistance.
+              Investing in workplace <strong>mental health</strong> and timely <strong>referral</strong> assessments yields an average return of £5 for every £1 spent.
             </p>
           </div>
         </div>

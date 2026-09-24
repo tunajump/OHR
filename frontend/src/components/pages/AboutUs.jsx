@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Phone, MapPin, Send, CheckCircle2, AlertCircle } from 'lucide-react';
 import api from '../../services/api';
+import SEO from '../common/SEO';
 
 const AboutUs = () => {
   const [formData, setFormData] = useState({
@@ -39,6 +40,11 @@ const AboutUs = () => {
 
   return (
     <div className="flex-1 bg-slate-50/50 py-12 px-4 sm:px-6 lg:px-8">
+      <SEO
+        title="About Us & Contact | Occupational Health Referral Platform | OHReferral"
+        description="Learn about OHReferral's mission to make occupational health accessible. Connect with our administrative team for referrals, employee issues, mental health, and health surveillance enquiries."
+        keywords="occupational health, referral, employee issues, mental health, oh provider, health surveillance, contact ohreferral"
+      />
       <div className="max-w-5xl mx-auto space-y-12">
         {/* Mission Banner */}
         <div className="bg-white rounded-2xl border border-slate-200/80 p-8 sm:p-10 shadow-sm space-y-4">

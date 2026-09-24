@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Send, CheckCircle2, HeartPulse, Stethoscope, ShieldCheck } from 'lucide-react';
 import api from '../../services/api';
+import SEO from '../common/SEO';
 
 const EmployeesLearnMore = () => {
   const [formData, setFormData] = useState({
@@ -32,37 +33,52 @@ const EmployeesLearnMore = () => {
 
   return (
     <div className="flex-1 bg-white py-12 px-4 sm:px-6 lg:px-8">
+      <SEO
+        title="Occupational Health for Employees | Mental Health & Workplace Support | OHReferral"
+        description="Confidential workplace support for employees. Impartial medical advice for employee issues, mental health, physical adjustments, and health surveillance."
+        keywords="employee issues, mental health, occupational health, referral, oh provider, health surveillance, workplace adjustments"
+      />
+
       <div className="max-w-4xl mx-auto space-y-10">
         {/* Title */}
         <div className="text-center space-y-3">
           <h1 className="text-3xl sm:text-4xl font-extrabold text-[#111827] tracking-tight">
-            Occupational Health for Employees
+            Occupational Health & Support for Employees
           </h1>
           <p className="text-sm sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            Occupational Health is here to support you when work impacts your health or when health conditions make work challenging.
+            <strong>Occupational Health</strong> is here to protect your wellbeing when workplace pressures impact your health or when medical conditions make work challenging.
           </p>
         </div>
 
         {/* Why OH Matters for Employees */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl">
-            <h3 className="font-bold text-slate-900 mb-2 text-base">Workplace Adjustments</h3>
+          <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+            <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center mb-1">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base">Workplace Adjustments</h3>
             <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-              Get impartial medical recommendations for ergonomic equipment, phased return to work, or modified duties.
+              Get impartial medical recommendations for ergonomic equipment, phased return-to-work schedules, and resolution of physical <strong>employee issues</strong>.
             </p>
           </div>
 
-          <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl">
-            <h3 className="font-bold text-slate-900 mb-2 text-base">Preventive Care</h3>
+          <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+            <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center mb-1">
+              <Stethoscope className="w-4 h-4" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base">Statutory Health Surveillance</h3>
             <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-              Health surveillance checks (hearing, vision, lung function) to ensure workplace hazards do not affect your wellbeing.
+              Routine <strong>health surveillance</strong> checks (hearing, vision, lung function) to ensure workplace hazards do not affect your long-term health.
             </p>
           </div>
 
-          <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl">
-            <h3 className="font-bold text-slate-900 mb-2 text-base">Mental Health Support</h3>
+          <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+            <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center mb-1">
+              <HeartPulse className="w-4 h-4" />
+            </div>
+            <h3 className="font-bold text-slate-900 text-base">Workplace Mental Health</h3>
             <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-              Confidential guidance to help address stress, anxiety, or burnout and maintain healthy work-life balance.
+              Impartial, confidential guidance from an accredited <strong>OH provider</strong> to address stress, anxiety, burnout, or work-life balance through a <strong>referral</strong>.
             </p>
           </div>
         </div>
@@ -73,7 +89,7 @@ const EmployeesLearnMore = () => {
             Tell Your Manager About OHReferral
           </h2>
           <p className="text-xs text-slate-500 text-center mb-6">
-            Fill in the details below to invite your manager or HR team to explore free OH support for your company.
+            Fill in the details below to invite your manager or HR team to explore free <strong>occupational health</strong> support for your company.
           </p>
 
           {submitted ? (
