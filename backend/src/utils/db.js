@@ -929,6 +929,13 @@ async function initPgSchema(client) {
       INSERT INTO Users (email, password, user_type)
       VALUES ('admin@ohreferral.co.uk', '$2a$10$WoRMgichwljOSCfJ8E4rFOhdKsPxvzeJhd9JV/QRQ9/53AwGJhIIi', 'admin')
       ON CONFLICT (email) DO NOTHING;
+
+      ALTER TABLE OHProviders ADD COLUMN IF NOT EXISTS logo_url TEXT;
+      ALTER TABLE OHProviders ADD COLUMN IF NOT EXISTS website VARCHAR(255);
+      ALTER TABLE OHProviders ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE OHProviders ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255);
+      ALTER TABLE OHProviders ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255);
+      ALTER TABLE OHProviders ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) DEFAULT 'inactive';
     `);
     console.log('✅ Supabase PostgreSQL schema initialized and verified!');
   } catch (err) {

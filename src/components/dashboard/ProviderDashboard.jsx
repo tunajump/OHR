@@ -54,6 +54,7 @@ const ProviderDashboard = () => {
   // Profile Edit Modal State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [modalError, setModalError] = useState('');
   const [profileForm, setProfileForm] = useState({
     companyName: '',
     contactPerson: '',
@@ -62,6 +63,27 @@ const ProviderDashboard = () => {
     website: '',
     description: ''
   });
+
+  // Keep profileForm in sync whenever profile data or user changes
+  useEffect(() => {
+    if (profile) {
+      setProfileForm({
+        companyName: profile.company_name || profile.companyName || profile.name || user?.organizationName || user?.company_name || '',
+        contactPerson: profile.contact_person || profile.contactPerson || profile.contact || user?.name || user?.contact_person || '',
+        phone: profile.phone || user?.phone || '',
+        logoUrl: profile.logo_url || profile.logoUrl || '',
+        website: profile.website || '',
+        description: profile.description || ''
+      });
+    } else if (user) {
+      setProfileForm(prev => ({
+        ...prev,
+        companyName: prev.companyName || user?.organizationName || user?.company_name || '',
+        contactPerson: prev.contactPerson || user?.name || user?.contact_person || '',
+        phone: prev.phone || user?.phone || ''
+      }));
+    }
+  }, [profile, user]);
 
   // Location form state for both Add and Edit
   const [locationForm, setLocationForm] = useState({
@@ -106,13 +128,14 @@ const ProviderDashboard = () => {
 
   const handleOpenEditProfile = () => {
     setProfileForm({
-      companyName: profile?.company_name || user?.organizationName || '',
-      contactPerson: profile?.contact_person || user?.name || '',
-      phone: profile?.phone || '',
-      logoUrl: profile?.logo_url || '',
+      companyName: profile?.company_name || profile?.companyName || profile?.name || user?.organizationName || user?.company_name || '',
+      contactPerson: profile?.contact_person || profile?.contactPerson || profile?.contact || user?.name || user?.contact_person || '',
+      phone: profile?.phone || user?.phone || '',
+      logoUrl: profile?.logo_url || profile?.logoUrl || '',
       website: profile?.website || '',
       description: profile?.description || ''
     });
+    setModalError('');
     setError('');
     setIsProfileModalOpen(true);
   };
@@ -121,22 +144,56 @@ const ProviderDashboard = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Logo image must be smaller than 2MB.');
+    if (file.size > 10 * 1024 * 1024) {
+      setModalError('Logo image must be smaller than 10MB.');
       return;
     }
 
     if (!file.type.startsWith('image/')) {
-      setError('Please select a valid image file (PNG, JPG, WebP, SVG).');
+      setModalError('Please select a valid image file (PNG, JPG, WebP, SVG).');
       return;
     }
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      setProfileForm((prev) => ({ ...prev, logoUrl: event.target.result }));
+      const rawDataUrl = event.target.result;
+      const img = new Image();
+      img.onload = () => {
+        // Optimize and resize image using canvas to ensure fast upload and compact storage
+        const maxDim = 512;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const isPng = file.type === 'image/png' || file.type === 'image/svg+xml';
+        const compressedDataUrl = isPng ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.9);
+
+        setProfileForm((prev) => ({ ...prev, logoUrl: compressedDataUrl }));
+        setModalError('');
+      };
+      img.onerror = () => {
+        setProfileForm((prev) => ({ ...prev, logoUrl: rawDataUrl }));
+        setModalError('');
+      };
+      img.src = rawDataUrl;
     };
     reader.onerror = () => {
-      setError('Failed to read image file.');
+      setModalError('Failed to read image file.');
     };
     reader.readAsDataURL(file);
   };
@@ -145,6 +202,7 @@ const ProviderDashboard = () => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
+    setModalError('');
     setIsSavingProfile(true);
 
     try {
@@ -156,11 +214,13 @@ const ProviderDashboard = () => {
         website: profileForm.website,
         description: profileForm.description
       });
-      setSuccessMsg('Practice profile updated successfully!');
+      setSuccessMsg('Company profile updated successfully!');
       setIsProfileModalOpen(false);
       await fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update provider profile.');
+      const errMsg = err.response?.data?.message || err.response?.data?.msg || err.message || 'Failed to update company profile.';
+      setModalError(errMsg);
+      setError(errMsg);
     } finally {
       setIsSavingProfile(false);
     }
@@ -314,7 +374,7 @@ const ProviderDashboard = () => {
               <button
                 type="button"
                 onClick={handleOpenEditProfile}
-                title="Change Practice Logo & Profile"
+                title="Change Company Logo & Profile"
                 className="absolute -bottom-1 -right-1 p-1 bg-white border border-slate-300 rounded-full shadow-sm text-slate-600 hover:text-indigo-600 hover:border-indigo-400 transition-colors"
               >
                 <Edit3 className="w-3.5 h-3.5" />
@@ -381,7 +441,7 @@ const ProviderDashboard = () => {
               className="px-3.5 py-2 text-xs font-semibold rounded-xl border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-400 transition-all flex items-center gap-1.5 shadow-xs"
             >
               <Building2 className="w-4 h-4 text-slate-500" />
-              <span>Edit Practice Profile</span>
+              <span>Edit Company Profile</span>
             </button>
 
             <button
@@ -902,7 +962,7 @@ const ProviderDashboard = () => {
         </div>
       )}
 
-      {/* Edit Practice Profile Modal */}
+      {/* Edit Company Profile Modal */}
       {isProfileModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 relative max-h-[90vh] flex flex-col">
@@ -913,25 +973,32 @@ const ProviderDashboard = () => {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3 mb-5">
+            <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
                 <Building2 className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-slate-900">
-                  Edit Practice Profile
+                  Edit Company Profile
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Update your clinic logo, practice details, contact information, and accreditation summary.
+                  Update your company logo, organization details, contact information, and accreditation summary.
                 </p>
               </div>
             </div>
 
+            {modalError && (
+              <div className="mb-4 rounded-xl bg-red-50 border border-red-200 p-3 flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-red-700 font-medium">{modalError}</div>
+              </div>
+            )}
+
             <form onSubmit={handleSaveProfile} className="space-y-4 overflow-y-auto pr-1">
-              {/* Practice Logo Upload & Preview */}
+              {/* Company Logo Upload & Preview */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Practice Logo
+                  Company Logo
                 </label>
                 <div className="flex items-center gap-4 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
                   {profileForm.logoUrl ? (
@@ -968,7 +1035,7 @@ const ProviderDashboard = () => {
                       />
                     </label>
                     <p className="text-[11px] text-slate-500">
-                      Supports PNG, JPG, WebP, SVG (Max 2MB).
+                      Supports PNG, JPG, WebP, SVG (Auto-optimized for crisp display).
                     </p>
                   </div>
                 </div>
@@ -988,7 +1055,7 @@ const ProviderDashboard = () => {
               {/* Company / Practice Name */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                  Practice / Organization Name *
+                  Company / Practice Name *
                 </label>
                 <input
                   type="text"
@@ -1044,7 +1111,7 @@ const ProviderDashboard = () => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                  Practice Overview & Accreditations
+                  Company Overview & Accreditations
                 </label>
                 <textarea
                   rows={3}
@@ -1070,7 +1137,7 @@ const ProviderDashboard = () => {
                   className="btn-primary text-xs px-5 py-2 flex items-center gap-1.5"
                 >
                   {isSavingProfile && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>Save Profile</span>
+                  <span>Save Company Profile</span>
                 </button>
               </div>
             </form>
