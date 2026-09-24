@@ -10,8 +10,24 @@ import {
   Server,
   Fingerprint,
   ShieldCheck,
-  Cloud
+  Cloud,
+  CreditCard,
+  TrendingUp,
+  Building2,
+  MapPin,
+  Calendar,
+  CheckCircle2,
+  Lock
 } from 'lucide-react';
+
+const calculateLocationPrice = (radius) => {
+  const r = Number(radius) || 30;
+  if (r <= 10) return 10;
+  if (r <= 30) return 20;
+  if (r <= 50) return 30;
+  if (r <= 100) return 50;
+  return 300;
+};
 
 const DatabaseViewer = () => {
   const [dbData, setDbData] = useState(null);
@@ -63,6 +79,33 @@ const DatabaseViewer = () => {
     );
   }) || [];
 
+  // Subscription Analytics calculations
+  const providersTable = dbData?.tables?.find(t => t.name === 'OHProviders')?.rows || [];
+  const providerLocsTable = dbData?.tables?.find(t => t.name === 'OHProviderLocations')?.rows || [];
+
+  const providerSummaries = providersTable.map(prov => {
+    const provId = prov.id;
+    const locs = providerLocsTable.filter(l => String(l.provider_id) === String(provId));
+    const isSubscribed = Boolean(prov.is_subscribed);
+    const monthlyTotal = locs.reduce((sum, l) => sum + calculateLocationPrice(l.coverage_radius), 0);
+    const yearlyTotal = monthlyTotal * 12;
+
+    return {
+      ...prov,
+      locations: locs,
+      isSubscribed,
+      monthlyTotal,
+      yearlyTotal
+    };
+  });
+
+  const activeSubscribers = providerSummaries.filter(p => p.isSubscribed);
+  const platformMRR = activeSubscribers.reduce((sum, p) => sum + p.monthlyTotal, 0);
+  const platformARR = platformMRR * 12;
+  const potentialMRR = providerSummaries.reduce((sum, p) => sum + p.monthlyTotal, 0);
+  const potentialARR = potentialMRR * 12;
+  const totalClinicLocations = providerLocsTable.length;
+
   return (
     <div className="flex-1 bg-slate-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -87,7 +130,7 @@ const DatabaseViewer = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-medium">
+            <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-medium">
               <button
                 onClick={() => setActiveTab('tables')}
                 className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
@@ -96,6 +139,16 @@ const DatabaseViewer = () => {
               >
                 <Table className="w-3.5 h-3.5" />
                 <span>Live Tables ({dbData?.tables?.length || 10})</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('subscriptions')}
+                className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                  activeTab === 'subscriptions' ? 'bg-white shadow-sm text-indigo-700 font-bold' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Subscriptions & MRR</span>
               </button>
 
               <button
@@ -258,7 +311,177 @@ const DatabaseViewer = () => {
           </div>
         )}
 
-        {/* TAB 2: Admin Passkeys & Biometrics Management */}
+        {/* TAB 2: Subscriptions & MRR / ARR Overview */}
+        {activeTab === 'subscriptions' && (
+          <div className="space-y-6">
+            {/* KPI Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-sm space-y-2">
+                <div className="flex items-center justify-between text-indigo-700">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Platform Active MRR</span>
+                  <div className="p-2 bg-indigo-50 rounded-xl">
+                    <CreditCard className="w-4 h-4 text-indigo-600" />
+                  </div>
+                </div>
+                <div className="text-2xl font-black text-slate-900">
+                  £{platformMRR}
+                  <span className="text-xs font-normal text-slate-500"> / month</span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  From {activeSubscribers.length} active paying {activeSubscribers.length === 1 ? 'provider' : 'providers'}
+                </p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-blue-100 shadow-sm space-y-2">
+                <div className="flex items-center justify-between text-blue-700">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Platform Active ARR</span>
+                  <div className="p-2 bg-blue-50 rounded-xl">
+                    <TrendingUp className="w-4 h-4 text-blue-600" />
+                  </div>
+                </div>
+                <div className="text-2xl font-black text-slate-900">
+                  £{platformARR}
+                  <span className="text-xs font-normal text-slate-500"> / year</span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Annualized recurring platform revenue
+                </p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-purple-100 shadow-sm space-y-2">
+                <div className="flex items-center justify-between text-purple-700">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Active Subscribers</span>
+                  <div className="p-2 bg-purple-50 rounded-xl">
+                    <ShieldCheck className="w-4 h-4 text-purple-600" />
+                  </div>
+                </div>
+                <div className="text-2xl font-black text-slate-900">
+                  {activeSubscribers.length} / {providerSummaries.length}
+                  <span className="text-xs font-normal text-slate-500"> providers</span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {providerSummaries.length - activeSubscribers.length} providers on Free Tier
+                </p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm space-y-2">
+                <div className="flex items-center justify-between text-emerald-700">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Clinic Branches</span>
+                  <div className="p-2 bg-emerald-50 rounded-xl">
+                    <MapPin className="w-4 h-4 text-emerald-600" />
+                  </div>
+                </div>
+                <div className="text-2xl font-black text-slate-900">
+                  {totalClinicLocations}
+                  <span className="text-xs font-normal text-slate-500"> locations</span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Potential Full Pipeline: £{potentialMRR}/mo (£{potentialARR}/yr)
+                </p>
+              </div>
+            </div>
+
+            {/* Provider Subscription Breakdown Table */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-0">
+              <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 bg-slate-50/50">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-indigo-600" />
+                    <span>Registered Provider Subscription Breakdown</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Live overview of all registered Occupational Health providers, clinic locations, and radius tiers.
+                  </p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                {providerSummaries.length > 0 ? (
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
+                        <th className="py-3.5 px-4">Provider / Organization</th>
+                        <th className="py-3.5 px-4">Subscription Status</th>
+                        <th className="py-3.5 px-4">Registered Clinic Locations</th>
+                        <th className="py-3.5 px-4 text-right">Monthly (MRR)</th>
+                        <th className="py-3.5 px-4 text-right">Annual (ARR)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {providerSummaries.map((prov) => (
+                        <tr key={prov.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-slate-900">{prov.company_name || 'OH Provider'}</div>
+                            <div className="text-[11px] text-slate-500">
+                              Contact: {prov.contact_person || 'N/A'} {prov.phone ? `(${prov.phone})` : ''}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {prov.isSubscribed ? (
+                              <span className="badge bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold flex items-center gap-1 w-max text-[11px]">
+                                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                Active Pro Plan
+                              </span>
+                            ) : (
+                              <span className="badge bg-amber-100 text-amber-800 border border-amber-200 font-medium text-[11px] w-max">
+                                Free Tier
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {prov.locations && prov.locations.length > 0 ? (
+                              <div className="space-y-1">
+                                {prov.locations.map(loc => (
+                                  <div key={loc.id} className="flex items-center gap-1.5 text-[11px] text-slate-700">
+                                    <MapPin className="w-3 h-3 text-indigo-500 flex-shrink-0" />
+                                    <span>{loc.address || loc.city || 'Clinic'} ({loc.postal_code || '—'})</span>
+                                    <span className="badge bg-slate-100 text-slate-700 text-[10px]">
+                                      {loc.coverage_radius || 30}m (£{calculateLocationPrice(loc.coverage_radius)}/mo)
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic text-[11px]">No branches registered</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-black text-sm text-slate-900">
+                            £{prov.monthlyTotal}
+                            <span className="text-[10px] font-normal text-slate-500">/mo</span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-black text-sm text-indigo-900">
+                            £{prov.yearlyTotal}
+                            <span className="text-[10px] font-normal text-slate-500">/yr</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-50 font-bold text-xs border-t-2 border-slate-200">
+                        <td colSpan="3" className="py-4 px-4 text-slate-800 uppercase tracking-wider">
+                          Total Platform Paying Pipeline ({activeSubscribers.length} Active Subscribers):
+                        </td>
+                        <td className="py-4 px-4 text-right text-base font-black text-indigo-900">
+                          £{platformMRR}<span className="text-xs font-normal text-slate-500">/mo</span>
+                        </td>
+                        <td className="py-4 px-4 text-right text-base font-black text-indigo-900">
+                          £{platformARR}<span className="text-xs font-normal text-slate-500">/yr</span>
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                ) : (
+                  <div className="p-8 text-center text-slate-400 space-y-2">
+                    <Building2 className="w-8 h-8 mx-auto text-slate-300" />
+                    <p className="text-sm font-medium text-slate-600">No OH providers registered yet</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: Admin Passkeys & Biometrics Management */}
         {activeTab === 'passkeys' && (
           <div className="space-y-6">
             <div className="bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 border border-blue-200 p-6 rounded-2xl">
@@ -279,7 +502,7 @@ const DatabaseViewer = () => {
           </div>
         )}
 
-        {/* TAB 3: Hosting & Architecture Explanation */}
+        {/* TAB 4: Hosting & Architecture Explanation */}
         {activeTab === 'hosting' && (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6">
             <div>
