@@ -182,6 +182,67 @@ admin@ohreferral.co.uk
   });
 }
 
+/**
+ * Send Account Email Verification Link
+ */
+async function sendAccountVerificationEmail({ to, name, verificationUrl, token }) {
+  const subject = 'Verify your OHReferral Account';
+  const url = verificationUrl || `https://ohreferral.co.uk/verify-email?token=${token}`;
+  
+  const textBody = `
+Hello ${name || ''},
+
+Thank you for registering with OHReferral.
+
+Please verify your email address to activate your account and confirm your organization:
+${url}
+
+This verification link will remain active for 48 hours. If you did not create an account with OHReferral, please disregard this email.
+
+Best regards,
+The OHReferral Team
+admin@ohreferral.co.uk
+`.trim();
+
+  const htmlBody = `
+<div style="font-family: Arial, sans-serif; color: #1e293b; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+  <div style="background-color: #4f46e5; color: #ffffff; padding: 16px 20px; border-radius: 8px; margin-bottom: 24px; text-align: center;">
+    <h2 style="margin: 0; font-size: 20px; font-weight: bold;">OHReferral &bull; Account Verification</h2>
+  </div>
+  
+  <p style="font-size: 15px; margin-bottom: 16px; line-height: 1.5;">
+    Hello <strong>${name || 'there'}</strong>,
+  </p>
+  <p style="font-size: 14px; margin-bottom: 24px; line-height: 1.6; color: #475569;">
+    Thank you for registering with <strong>OHReferral</strong>. Please confirm your email address to activate your account, verify your organization, and enable referral dispatching.
+  </p>
+
+  <div style="text-align: center; margin: 30px 0;">
+    <a href="${url}" style="background-color: #4f46e5; color: #ffffff; padding: 12px 28px; text-decoration: none; font-size: 14px; font-weight: bold; border-radius: 8px; display: inline-block; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);">
+      Verify My Email Address
+    </a>
+  </div>
+
+  <p style="font-size: 13px; color: #64748b; line-height: 1.5; margin-top: 24px;">
+    Or copy and paste this verification URL into your browser:<br/>
+    <a href="${url}" style="color: #4f46e5; word-break: break-all; font-size: 12px;">${url}</a>
+  </p>
+
+  <p style="font-size: 12px; color: #94a3b8; margin-top: 32px; border-top: 1px solid #e2e8f0; padding-top: 16px;">
+    This link will expire in 48 hours. If you did not create an account on OHReferral, you can safely ignore this email.
+  </p>
+</div>
+`;
+
+  return sendEmail({
+    to,
+    subject,
+    text: textBody,
+    html: htmlBody,
+    from: `"${SYSTEM_SENDER_NAME}" <${SYSTEM_FROM_EMAIL}>`
+  });
+}
+
 module.exports = {
   SYSTEM_FROM_EMAIL,
   ADMIN_EMAIL,
@@ -189,5 +250,7 @@ module.exports = {
   emailDispatchLog,
   sendEmail,
   sendContactEnquiry,
-  sendEmployeeSuggestionNotification
+  sendEmployeeSuggestionNotification,
+  sendAccountVerificationEmail
 };
+

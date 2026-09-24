@@ -10,11 +10,12 @@ const {
   closeReferral
 } = require('../controllers/referralController');
 const auth = require('../middleware/auth');
+const { referralLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
-router.post('/referrals', auth, createReferral);
-router.post('/referral', auth, createReferral);
+router.post('/referrals', auth, referralLimiter, createReferral);
+router.post('/referral', auth, referralLimiter, createReferral);
 router.get('/referrals', auth, listReferrals);
 router.get('/referrals/:id', auth, getReferral);
 router.put('/referrals/:id', auth, updateReferral);

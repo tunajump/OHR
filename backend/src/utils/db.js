@@ -67,6 +67,9 @@ const memoryDb = {
       user_type: 'admin',
       userType: 'admin',
       name: 'Super Administrator',
+      is_verified: true,
+      verification_token: null,
+      verification_token_expires: null,
       created_at: new Date().toISOString()
     }
   ],
@@ -120,7 +123,20 @@ const mockPool = {
         const results = memoryDb.Users.filter(u => String(u.email).trim().toLowerCase() === email).map(u => ({
           ...u,
           userType: u.user_type || u.userType,
-          user_type: u.user_type || u.userType
+          user_type: u.user_type || u.userType,
+          is_verified: u.is_verified !== undefined ? Boolean(u.is_verified) : true
+        }));
+        return [results];
+      }
+
+      // SELECT from Users where verification_token = ?
+      if (normalizedSql.includes('select') && normalizedSql.includes('from users where') && normalizedSql.includes('verification_token =')) {
+        const token = String(params[0]).trim();
+        const results = memoryDb.Users.filter(u => String(u.verification_token || '').trim() === token).map(u => ({
+          ...u,
+          userType: u.user_type || u.userType,
+          user_type: u.user_type || u.userType,
+          is_verified: Boolean(u.is_verified)
         }));
         return [results];
       }
@@ -133,6 +149,8 @@ const mockPool = {
           email: u.email,
           user_type: u.user_type || u.userType,
           userType: u.user_type || u.userType,
+          is_verified: u.is_verified !== undefined ? Boolean(u.is_verified) : true,
+          verification_token: u.verification_token,
           created_at: u.created_at
         }));
         return [results];
@@ -193,7 +211,7 @@ const mockPool = {
 
       // 2. INSERT INTO Users
       if (normalizedSql.startsWith('insert into users')) {
-        const [email, password, user_type] = params;
+        const [email, password, user_type, is_verified, verification_token, verification_token_expires] = params;
         const id = nextIds.Users++;
         const newUser = {
           id,
@@ -201,6 +219,9 @@ const mockPool = {
           password,
           user_type,
           userType: user_type,
+          is_verified: is_verified !== undefined ? Boolean(is_verified) : false,
+          verification_token: verification_token || null,
+          verification_token_expires: verification_token_expires || null,
           created_at: new Date().toISOString()
         };
         memoryDb.Users.push(newUser);
@@ -212,7 +233,16 @@ const mockPool = {
         const id = params[params.length - 1];
         const user = memoryDb.Users.find(u => String(u.id) === String(id));
         if (user) {
-          if (params.length === 2 && normalizedSql.includes('user_type = ?')) {
+          if (normalizedSql.includes('is_verified =') && normalizedSql.includes('verification_token =')) {
+            user.is_verified = Boolean(params[0]);
+            user.verification_token = params[1];
+            user.verification_token_expires = params[2];
+          } else if (normalizedSql.includes('is_verified =')) {
+            user.is_verified = Boolean(params[0]);
+          } else if (normalizedSql.includes('verification_token =')) {
+            user.verification_token = params[0];
+            user.verification_token_expires = params[1];
+          } else if (params.length === 2 && normalizedSql.includes('user_type = ?')) {
             user.user_type = params[0];
             user.userType = params[0];
           } else if (params.length === 3 && normalizedSql.includes('password = ?')) {
@@ -930,6 +960,9 @@ async function initPgSchema(client) {
       VALUES ('admin@ohreferral.co.uk', '$2a$10$WoRMgichwljOSCfJ8E4rFOhdKsPxvzeJhd9JV/QRQ9/53AwGJhIIi', 'admin')
       ON CONFLICT (email) DO NOTHING;
 
+      ALTER TABLE Users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;
+      ALTER TABLE Users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(255);
+      ALTER TABLE Users ADD COLUMN IF NOT EXISTS verification_token_expires TIMESTAMP;
       ALTER TABLE OHProviders ADD COLUMN IF NOT EXISTS logo_url TEXT;
       ALTER TABLE OHProviders ADD COLUMN IF NOT EXISTS website VARCHAR(255);
       ALTER TABLE OHProviders ADD COLUMN IF NOT EXISTS description TEXT;

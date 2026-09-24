@@ -9,7 +9,8 @@ const AboutUs = () => {
     email: '',
     phone: '',
     subject: '',
-    message: ''
+    message: '',
+    company_website_hp: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -146,6 +147,20 @@ const AboutUs = () => {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Honeypot anti-bot trap field */}
+                <div className="absolute opacity-0 pointer-events-none -left-[9999px]" aria-hidden="true">
+                  <label htmlFor="contact_company_website_hp">Leave empty</label>
+                  <input
+                    id="contact_company_website_hp"
+                    type="text"
+                    name="company_website_hp"
+                    tabIndex="-1"
+                    autoComplete="off"
+                    value={formData.company_website_hp}
+                    onChange={(e) => setFormData({ ...formData, company_website_hp: e.target.value })}
+                  />
+                </div>
+
                 <h2 className="text-xl font-bold text-slate-900 mb-1">Send Us a Message</h2>
                 <p className="text-xs text-slate-500 mb-4">
                   Complete the form below and our team will get back to you.

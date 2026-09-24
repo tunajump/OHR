@@ -77,6 +77,15 @@ const server = app.listen(PORT, '0.0.0.0', async () => {
       await pool.query("ALTER TABLE Users MODIFY COLUMN user_type ENUM('business', 'provider', 'admin') NOT NULL");
     } catch (e) {}
     try {
+      await pool.query('ALTER TABLE Users ADD COLUMN is_verified BOOLEAN DEFAULT FALSE');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE Users ADD COLUMN verification_token VARCHAR(255) NULL');
+    } catch (e) {}
+    try {
+      await pool.query('ALTER TABLE Users ADD COLUMN verification_token_expires TIMESTAMP NULL');
+    } catch (e) {}
+    try {
       await pool.query('ALTER TABLE BusinessLocations ADD COLUMN latitude DECIMAL(10, 8) NULL');
     } catch (e) {}
     try {

@@ -137,6 +137,16 @@ const matchPendingReferrals = async () => {
 exports.matchPendingReferrals = matchPendingReferrals;
 
 exports.createReferral = async (req, res) => {
+  // Bot detection: If honeypot field is filled by bot scraper, return early gracefully
+  if (req.body.company_website_hp || req.body.website_hp) {
+    console.warn(`[BOT BLOCKED] Referral bot caught via honeypot from IP: ${req.ip}`);
+    return res.status(200).json({
+      message: 'Referral submitted successfully.',
+      referralId: 999999,
+      status: 'pending'
+    });
+  }
+
   const userId = req.user.id;
   const businessLocationId = req.body.businessLocationId || req.body.business_location_id;
   const servicesInput = req.body.services || req.body.serviceTypes || req.body.serviceType || req.body.service_type;

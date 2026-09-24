@@ -780,6 +780,78 @@ async function runStages() {
     assert(Array.isArray(contactMessagesRes.data.messages), 'Contact messages returns array');
     assert(contactMessagesRes.data.messages.some(m => m.email === 'jane.watson@nhs-clinic.co.uk'), 'Submitted contact enquiry is present in admin messages store');
 
+    // =========================================================================
+    // STAGE 9: Anti-Bot Defense (Honeypot Traps) & Email Verification Flow
+    // =========================================================================
+    console.log('\n----------------------------------------------------');
+    console.log('STAGE 9: Anti-Bot Defense (Honeypot) & Email Verification');
+    console.log('----------------------------------------------------');
+
+    // 9.1 Bot signup trap: honeypot field filled by automated bot
+    const botSignupRes = await api.post('/register', {
+      email: 'bot_scam_user@spambot.com',
+      password: 'password123',
+      userType: 'business',
+      name: 'Bot Scraper',
+      phone: '020 7946 0199',
+      company_website_hp: 'http://spambot-malicious-link.ru'
+    });
+    assert(botSignupRes.status === 400, 'Automated bot registration caught by honeypot is blocked with 400');
+
+    // 9.2 Legitimate registration gets verification token and soft activation
+    const legitUserEmail = `verify_test_${Date.now()}@ohreferral-client.co.uk`;
+    const legitUserRes = await api.post('/register', {
+      email: legitUserEmail,
+      password: 'LegitPassword2026!',
+      userType: 'business',
+      name: 'Verifiable Business Ltd',
+      phone: '020 7946 0888'
+    });
+    assert(legitUserRes.status === 201, 'Legitimate business registration succeeds with 201 Created');
+    assert(legitUserRes.data && legitUserRes.data.isVerified === false, 'New account starts with isVerified = false (soft activation)');
+    const legitToken = legitUserRes.data.token;
+
+    // 9.3 Check /me status
+    const meRes = await api.get('/me', {
+      headers: { 'x-auth-token': legitToken }
+    });
+    assert(meRes.status === 200, 'User can retrieve own account status (/api/me)');
+    assert(meRes.data.isVerified === false, '/api/me confirms user is currently unverified');
+
+    // 9.4 Resend verification email
+    const resendRes = await api.post('/resend-verification', { email: legitUserEmail });
+    assert(resendRes.status === 200, 'Resend verification email succeeds with 200 OK');
+
+    // 9.5 Complete email verification with token
+    const poolDb = require('./src/utils/db');
+    const [userRows] = await poolDb.query('SELECT verification_token FROM Users WHERE LOWER(email) = ?', [legitUserEmail.toLowerCase()]);
+    assert(userRows && userRows.length > 0 && userRows[0].verification_token, 'Verification token generated in database');
+    const verifyToken = userRows[0].verification_token;
+
+    const verifyRes = await api.get(`/verify-email?token=${verifyToken}`);
+    assert(verifyRes.status === 200, 'Verify email link with valid token succeeds with 200 OK');
+    assert(verifyRes.data && verifyRes.data.isVerified === true, 'Verification returns isVerified = true');
+
+    // 9.6 Verify updated /me status
+    const updatedMeRes = await api.get('/me', {
+      headers: { 'x-auth-token': legitToken }
+    });
+    assert(updatedMeRes.data.isVerified === true, 'Subsequent /api/me confirms user is now fully verified');
+
+    // 9.7 Bot referral trap: honeypot field filled
+    const botReferralRes = await api.post('/referrals', {
+      businessLocationId: 1,
+      services: ['Management Referrals'],
+      employeeCount: 10,
+      contactName: 'Bot spam',
+      contactEmail: 'bot@spam.com',
+      contactPhone: '020 7946 0123',
+      company_website_hp: 'http://bot-honeypot.xyz'
+    }, {
+      headers: { 'x-auth-token': legitToken }
+    });
+    assert(botReferralRes.status === 200, 'Referral bot trap silently returns 200 OK without creating database records');
+
     console.log('\n====================================================');
     console.log('  ALL STAGES PASSED: Full OHR Test Suite 100% SUCCESS!  ');
     console.log('====================================================\n');

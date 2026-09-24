@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../utils/db');
 const auth = require('../middleware/auth');
 const emailService = require('../utils/emailService');
+const { contactLimiter } = require('../middleware/rateLimiter');
 
 // Middleware to restrict access to super-users (admin)
 const requireAdmin = async (req, res, next) => {
@@ -62,9 +63,20 @@ router.post('/employees/notify', async (req, res) => {
 });
 
 // Public Contact Form Enquiry (automatically routed to admin@ohreferral.co.uk)
-router.post('/contact', async (req, res) => {
+router.post('/contact', contactLimiter, async (req, res) => {
   try {
-    const { name, email, phone, subject, message } = req.body;
+    const { name, email, phone, subject, message, company_website_hp, website_hp } = req.body;
+
+    // Bot detection: If honeypot is filled, return successful response without sending email or DB save
+    if (company_website_hp || website_hp) {
+      console.warn(`[BOT BLOCKED] Contact bot caught via honeypot from IP: ${req.ip}`);
+      return res.status(200).json({
+        message: 'Your enquiry has been successfully delivered to the OHReferral administration team.',
+        routedTo: emailService.CONTACT_DEFAULT_RECEIVER,
+        fromMailbox: emailService.SYSTEM_FROM_EMAIL
+      });
+    }
+
     if (!email || !message) {
       return res.status(400).json({ message: 'A contact email address and message are required.' });
     }

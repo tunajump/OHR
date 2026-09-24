@@ -5,6 +5,7 @@ import Footer from './components/layout/Footer';
 import Home from './components/home/Home';
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
+import VerifyEmail from './components/auth/VerifyEmail';
 import BusinessDashboard from './components/dashboard/BusinessDashboard';
 import ProviderDashboard from './components/dashboard/ProviderDashboard';
 import BusinessLearnMore from './components/pages/BusinessLearnMore';
@@ -104,6 +105,7 @@ function App() {
               </PublicOnlyRoute>
             }
           />
+          <Route path="/verify-email" element={<VerifyEmail />} />
 
           {/* Learn More Specification Pages */}
           <Route path="/business/learn-more" element={<BusinessLearnMore />} />

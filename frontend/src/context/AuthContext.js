@@ -35,12 +35,39 @@ export const AuthProvider = ({ children }) => {
     return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
   }, []);
 
+  const refreshUserStatus = async () => {
+    if (!token) return;
+    try {
+      const res = await api.get('/me');
+      if (res.data) {
+        setUser((prev) => {
+          const updated = {
+            ...(prev || {}),
+            id: res.data.id,
+            email: res.data.email,
+            userType: res.data.userType,
+            isVerified: Boolean(res.data.isVerified)
+          };
+          localStorage.setItem('user', JSON.stringify(updated));
+          return updated;
+        });
+      }
+    } catch (err) {
+      console.warn('Could not refresh user status:', err.message);
+    }
+  };
+
   const login = async (email, password) => {
     try {
       const response = await api.post('/login', { email, password });
-      const { token: receivedToken, userId, userType } = response.data;
+      const { token: receivedToken, userId, userType, isVerified } = response.data;
 
-      const userData = { id: userId, email, userType };
+      const userData = { 
+        id: userId, 
+        email, 
+        userType, 
+        isVerified: userType === 'admin' || Boolean(isVerified) 
+      };
 
       localStorage.setItem('token', receivedToken);
       localStorage.setItem('user', JSON.stringify(userData));
@@ -59,7 +86,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async ({ email, password, userType, name, organizationName, phone }) => {
+  const register = async ({ email, password, userType, name, organizationName, phone, company_website_hp }) => {
     setIsLoading(true);
     try {
       const response = await api.post('/register', {
@@ -69,6 +96,7 @@ export const AuthProvider = ({ children }) => {
         name: name || organizationName,
         organizationName: organizationName || name,
         phone,
+        company_website_hp
       });
 
       // Mark that user has just successfully completed registration
@@ -83,6 +111,15 @@ export const AuthProvider = ({ children }) => {
       return { success: false, error: message };
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const resendVerificationEmail = async (emailToUse = null) => {
+    try {
+      const res = await api.post('/resend-verification', { email: emailToUse || user?.email });
+      return { success: true, message: res.data?.message || 'Verification email sent!' };
+    } catch (err) {
+      return { success: false, error: err.response?.data?.message || 'Failed to resend verification email.' };
     }
   };
 
@@ -117,6 +154,8 @@ export const AuthProvider = ({ children }) => {
     logout,
     setAuthSession,
     clearJustRegistered,
+    refreshUserStatus,
+    resendVerificationEmail
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

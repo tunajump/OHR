@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldCheck, HeartPulse, Stethoscope, Users } from 'lucide-react';
+import { ShieldCheck, HeartPulse, Stethoscope, Users, CheckCircle, ArrowRight } from 'lucide-react';
 import SEO from '../common/SEO';
 
 const Home = () => {
@@ -23,7 +23,7 @@ const Home = () => {
           <h1 className="text-3xl sm:text-4xl lg:text-[42px] font-extrabold text-[#09090b] tracking-tight leading-tight">
             Making Occupational Health Accessible to All
           </h1>
-          <p className="mt-3 text-sm sm:text-base text-[#64748b] font-normal leading-relaxed max-w-2xl mx-auto">
+          <p className="text-sm sm:text-base text-[#64748b] font-normal leading-relaxed max-w-2xl mx-auto">
             Only 45% of workers in Britain have access to some form of occupational health. We think every employee deserves that opportunity.
           </p>
         </div>

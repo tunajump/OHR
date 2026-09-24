@@ -46,6 +46,22 @@ const ProviderDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [verificationBannerMsg, setVerificationBannerMsg] = useState('');
+
+  const handleResendVerification = async () => {
+    setResendingVerification(true);
+    setVerificationBannerMsg('');
+    try {
+      const res = await api.post('/resend-verification', { email: user?.email });
+      setVerificationBannerMsg(res.data?.message || 'Verification email sent! Please check your inbox.');
+    } catch (err) {
+      setVerificationBannerMsg(err.response?.data?.message || 'Failed to send verification email.');
+    } finally {
+      setResendingVerification(false);
+    }
+  };
+
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState(null);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
@@ -470,6 +486,34 @@ const ProviderDashboard = () => {
             </button>
           </div>
         </div>
+
+        {/* Email Verification Banner */}
+        {user && user.isVerified === false && (
+          <div className="rounded-2xl bg-amber-50 border border-amber-200/80 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="p-2 rounded-xl bg-amber-100 text-amber-700 flex-shrink-0">
+                <Mail className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-amber-900">Please verify your clinic email address</h4>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  We sent a confirmation link to <span className="font-semibold">{user.email}</span>. Please verify your email to unlock all referral matching notifications and live business enquiries.
+                </p>
+                {verificationBannerMsg && (
+                  <p className="text-xs font-medium text-amber-900 mt-1.5">{verificationBannerMsg}</p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleResendVerification}
+              disabled={resendingVerification}
+              className="self-start sm:self-auto px-4 py-2 text-xs font-semibold rounded-xl bg-amber-600 hover:bg-amber-700 text-white transition-all disabled:opacity-50 whitespace-nowrap shadow-sm"
+            >
+              {resendingVerification ? 'Sending...' : 'Resend Email'}
+            </button>
+          </div>
+        )}
 
         {/* Notifications / Alerts */}
         {error && (

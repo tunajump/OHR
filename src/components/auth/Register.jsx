@@ -40,6 +40,7 @@ const Register = () => {
     organizationName: '',
     phone: '',
   });
+  const [honeypot, setHoneypot] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -54,6 +55,13 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    // If invisible honeypot field is filled, silently discard (automated bot spam)
+    if (honeypot) {
+      console.warn('Bot detected via honeypot trap.');
+      setError('Form submission failed.');
+      return;
+    }
 
     const trimmedEmail = formData.email.trim();
     const trimmedPhone = formData.phone.trim();
@@ -94,19 +102,21 @@ const Register = () => {
           userType,
           name: trimmedName,
           organizationName: trimmedOrg,
-          phone: trimmedPhone
+          phone: trimmedPhone,
+          company_website_hp: honeypot
         });
 
         if (result && result.verified && result.token) {
           const userData = {
             id: result.userId,
             email: result.email,
-            userType: result.userType
+            userType: result.userType,
+            isVerified: false
           };
           if (setAuthSession) {
             setAuthSession(result.token, userData);
           }
-          const targetDashboard = result.userType === 'provider' ? '/provider/dashboard' : '/business/dashboard';
+          const targetDashboard = result.userType === 'provider' ? '/dashboard/provider' : '/dashboard/business';
           navigate(targetDashboard, { replace: true });
         } else {
           setError(result?.message || 'Passkey registration could not be verified.');
@@ -137,21 +147,23 @@ const Register = () => {
     }
 
     setSubmitting(true);
-    const result = await register({
+    const registerPayload = {
       email: trimmedEmail,
       password: formData.password,
       userType,
       name: trimmedName,
       organizationName: trimmedOrg,
       phone: trimmedPhone,
-    });
+      ...(honeypot ? { company_website_hp: honeypot } : {})
+    };
+    const result = await register(registerPayload);
     setSubmitting(false);
 
     if (result.success) {
       navigate('/login', {
         state: {
           registeredEmail: trimmedEmail,
-          message: 'Registration completed successfully! Please sign in with your credentials to access your dashboard.',
+          message: 'Account registered successfully! An email verification link has been sent to your inbox. You can sign in now.',
         },
         replace: true,
       });
@@ -255,6 +267,20 @@ const Register = () => {
 
         {/* Registration Form */}
         <form className="space-y-4" onSubmit={handleSubmit}>
+          {/* Invisible Honeypot anti-bot trap */}
+          <div aria-hidden="true" style={{ display: 'none', position: 'absolute', left: '-9999px', opacity: 0 }}>
+            <label htmlFor="company_website_hp">Leave this field blank</label>
+            <input
+              id="company_website_hp"
+              name="company_website_hp"
+              type="text"
+              tabIndex="-1"
+              autoComplete="off"
+              value={honeypot}
+              onChange={(e) => setHoneypot(e.target.value)}
+            />
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="reg-org" className="block text-sm font-medium text-slate-700 mb-1">

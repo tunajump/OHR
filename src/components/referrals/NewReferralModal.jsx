@@ -59,6 +59,7 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [notes, setNotes] = useState('');
+  const [companyWebsiteHp, setCompanyWebsiteHp] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -167,6 +168,7 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
         contactEmail: trimmedEmail,
         contactPhone: trimmedPhone,
         notes: trimmedNotes,
+        ...(companyWebsiteHp ? { company_website_hp: companyWebsiteHp } : {})
       });
 
       setMatchResult(response.data);
@@ -265,6 +267,20 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
         ) : (
           /* Submission Form */
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Honeypot field for anti-bot trap */}
+            <div className="absolute opacity-0 pointer-events-none -left-[9999px]" aria-hidden="true">
+              <label htmlFor="ref_company_website_hp">Leave empty</label>
+              <input
+                id="ref_company_website_hp"
+                type="text"
+                name="company_website_hp"
+                tabIndex="-1"
+                autoComplete="off"
+                value={companyWebsiteHp}
+                onChange={(e) => setCompanyWebsiteHp(e.target.value)}
+              />
+            </div>
+
             {/* Section A: Referrer Contact Info */}
             <div className="bg-slate-50/80 p-4 rounded-xl border border-slate-200 space-y-3">
               <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
