@@ -1,4 +1,7 @@
-const { Pool: PgPool } = require('pg');
+let PgPool = null;
+try {
+  PgPool = require('pg').Pool;
+} catch (e) {}
 const mysql = require('mysql2/promise');
 
 function isPostgresConfigured() {

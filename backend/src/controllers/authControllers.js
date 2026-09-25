@@ -61,7 +61,7 @@ exports.register = async (req, res) => {
     
     // Generate secure 48-hour email verification token
     const verificationToken = crypto.randomBytes(32).toString('hex');
-    const tokenExpires = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const tokenExpires = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
 
     const [insertUserRes] = await pool.query(
       'INSERT INTO Users (email, password, user_type, is_verified, verification_token, verification_token_expires) VALUES (?, ?, ?, ?, ?, ?)',
@@ -285,7 +285,7 @@ exports.resendVerification = async (req, res) => {
 
     // Generate new token
     const verificationToken = crypto.randomBytes(32).toString('hex');
-    const tokenExpires = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const tokenExpires = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
 
     await pool.query(
       'UPDATE Users SET verification_token = ?, verification_token_expires = ? WHERE id = ?',

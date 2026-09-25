@@ -29,6 +29,8 @@ services:
       - /app/node_modules
     ports:
       - "5000:5000"
+    env_file:
+      - ./backend/.env
     environment:
       - DB_HOST=db
       - DB_PORT=3306
@@ -36,6 +38,15 @@ services:
       - DB_PASSWORD=your_root_password
       - DB_NAME=your_database_name
       - JWT_SECRET=ohr_super_secret_jwt_key_2026
+      - SMTP_HOST=smtp.hostinger.com
+      - SMTP_PORT=465
+      - SMTP_SECURE=true
+      - SMTP_USER=admin@ohreferral.co.uk
+      - SMTP_PASS=$$DBpn4a?$$Fn$$PS&M
+      - SYSTEM_FROM_EMAIL=admin@ohreferral.co.uk
+      - SYSTEM_SENDER_NAME=OHReferral
+      - ADMIN_EMAIL=admin@ohreferral.co.uk
+      - CONTACT_DEFAULT_RECEIVER=admin@ohreferral.co.uk
     depends_on:
       - db
 
