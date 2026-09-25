@@ -62,16 +62,19 @@ const Header = () => {
         <div className="flex justify-between items-center h-20">
           {/* Authentic Logo -> Links to Dashboard for logged in users, or Home landing for guests */}
           <div className="flex items-center">
-            <Link to={homePath} className="flex items-center gap-3">
+            <Link to={homePath} className="flex items-center gap-2.5">
               <img 
                 src="/logo.png" 
                 alt="OH Referral Logo" 
-                className="h-12 w-auto object-contain"
+                className="h-10 w-10 object-contain rounded-xl shadow-xs"
                 onError={(e) => {
                   e.target.onerror = null;
                   e.target.style.display = 'none';
                 }}
               />
+              <span className="text-xl font-extrabold tracking-tight text-slate-900">
+                OH<span className="text-blue-600">Referral</span>
+              </span>
             </Link>
           </div>
 
