@@ -148,7 +148,9 @@ exports.createReferral = async (req, res) => {
   }
 
   const userId = req.user.id;
-  const businessLocationId = req.body.businessLocationId || req.body.business_location_id;
+  let businessLocationId = req.body.businessLocationId || req.body.business_location_id;
+  const postalCode = (req.body.postalCode || req.body.postal_code || req.body.postcode || '').trim();
+  const locationEmployeeCount = req.body.locationEmployeeCount || req.body.location_employee_count || '11-50';
   const servicesInput = req.body.services || req.body.serviceTypes || req.body.serviceType || req.body.service_type;
 
   let requestedServices = [];
@@ -158,8 +160,8 @@ exports.createReferral = async (req, res) => {
     requestedServices = servicesInput.split(',').map(s => s.trim()).filter(Boolean);
   }
 
-  if (!businessLocationId || requestedServices.length === 0) {
-    return res.status(400).json({ message: 'businessLocationId and at least one serviceType are required' });
+  if ((!businessLocationId && !postalCode) || requestedServices.length === 0) {
+    return res.status(400).json({ message: 'A workplace location (or location postcode) and at least one serviceType are required' });
   }
 
   const primaryServiceType = requestedServices.join(', ');
@@ -189,6 +191,28 @@ exports.createReferral = async (req, res) => {
       return res.status(400).json({ message: 'Business profile not found' });
     }
     const businessId = businesses[0].id;
+
+    // 1b. Streamlined on-the-fly location creation if business has not yet set up a location
+    if (!businessLocationId && postalCode) {
+      const cleanPostcode = postalCode.toUpperCase();
+      let locLat = null;
+      let locLon = null;
+      let locCity = 'Workplace';
+      try {
+        const coords = await geocodePostcode(cleanPostcode);
+        locLat = coords.latitude;
+        locLon = coords.longitude;
+        if (coords.city) locCity = coords.city;
+      } catch (geoErr) {
+        console.warn(`Could not geocode auto-created location postcode ${cleanPostcode}:`, geoErr.message);
+      }
+
+      const [newLocRes] = await pool.query(
+        'INSERT INTO BusinessLocations (business_id, address, city, state, country, postal_code, employee_count, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [businessId, cleanPostcode, locCity, '', 'United Kingdom', cleanPostcode, locationEmployeeCount || '11-50', locLat, locLon]
+      );
+      businessLocationId = newLocRes.insertId;
+    }
 
     // 2. Fetch business location to verify and get branch coordinates & employee limit
     const [locations] = await pool.query('SELECT * FROM BusinessLocations WHERE id = ?', [businessLocationId]);

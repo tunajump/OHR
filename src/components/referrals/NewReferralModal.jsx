@@ -11,7 +11,8 @@ import {
   Users,
   Mail, 
   Phone, 
-  FileText 
+  FileText,
+  MapPin
 } from 'lucide-react';
 
 const AVAILABLE_SERVICES = [
@@ -51,6 +52,10 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
   const user = authContext?.user;
 
   const [businessLocationId, setBusinessLocationId] = useState(locations[0]?.id || '');
+  const [isAddingNewLocation, setIsAddingNewLocation] = useState(false);
+  const [postcode, setPostcode] = useState('');
+  const [locationHeadcount, setLocationHeadcount] = useState('11-50');
+
   const [selectedServices, setSelectedServices] = useState(['Management Referrals']);
   const [employeeCount, setEmployeeCount] = useState(1);
   
@@ -65,14 +70,19 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
   const [error, setError] = useState('');
   const [matchResult, setMatchResult] = useState(null);
 
+  const hasLocations = locations && locations.length > 0;
+  const isEnteringPostcode = !hasLocations || isAddingNewLocation;
+
   // Synchronize selected location and default contact details when modal opens
   useEffect(() => {
     if (isOpen) {
-      if (locations && locations.length > 0) {
+      if (hasLocations) {
         const match = locations.find((l) => String(l.id) === String(businessLocationId));
         if (!match) {
           setBusinessLocationId(locations[0].id);
         }
+      } else {
+        setIsAddingNewLocation(true);
       }
       if (!contactName) {
         setContactName(profile?.contact_person || user?.name || '');
@@ -89,8 +99,12 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
 
   if (!isOpen) return null;
 
-  const selectedLocation = locations.find((l) => String(l.id) === String(businessLocationId)) || locations[0];
-  const maxLocationCapacity = selectedLocation ? parseLocationCapacity(selectedLocation.employee_count) : 10000;
+  const selectedLocation = hasLocations && !isAddingNewLocation
+    ? (locations.find((l) => String(l.id) === String(businessLocationId)) || locations[0])
+    : null;
+  const maxLocationCapacity = selectedLocation 
+    ? parseLocationCapacity(selectedLocation.employee_count) 
+    : parseLocationCapacity(locationHeadcount);
 
   const handleToggleService = (serviceId) => {
     setSelectedServices((prev) => {
@@ -113,6 +127,7 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
     const trimmedEmail = contactEmail.trim();
     const trimmedPhone = contactPhone.trim();
     const trimmedNotes = notes.trim();
+    const trimmedPostcode = postcode.trim().toUpperCase();
 
     if (!trimmedName) {
       setError('Please provide the full name of the person submitting the referral.');
@@ -134,11 +149,17 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
       return;
     }
 
-    const targetLocationId = businessLocationId || (locations[0]?.id);
-
-    if (!targetLocationId) {
-      setError('Please add a workplace location in your dashboard first.');
-      return;
+    if (isEnteringPostcode) {
+      if (!trimmedPostcode) {
+        setError('Please provide the postcode of the workplace location this referral is for.');
+        return;
+      }
+    } else {
+      const targetLocationId = businessLocationId || (locations[0]?.id);
+      if (!targetLocationId) {
+        setError('Please select a workplace location or enter a postcode.');
+        return;
+      }
     }
 
     const parsedEmployees = parseInt(employeeCount, 10);
@@ -159,8 +180,7 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
 
     setSubmitting(true);
     try {
-      const response = await api.post('/referrals', {
-        businessLocationId: targetLocationId,
+      const payload = {
         services: selectedServices,
         serviceType: selectedServices.join(', '),
         employeeCount: parsedEmployees,
@@ -169,7 +189,16 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
         contactPhone: trimmedPhone,
         notes: trimmedNotes,
         ...(companyWebsiteHp ? { company_website_hp: companyWebsiteHp } : {})
-      });
+      };
+
+      if (isEnteringPostcode) {
+        payload.postalCode = trimmedPostcode;
+        payload.locationEmployeeCount = locationHeadcount;
+      } else {
+        payload.businessLocationId = businessLocationId || locations[0]?.id;
+      }
+
+      const response = await api.post('/referrals', payload);
 
       setMatchResult(response.data);
       if (onReferralCreated) {
@@ -350,25 +379,131 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
 
             {/* Section B: Business Location */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                Business Branch / Origin Location *
-              </label>
-              {locations.length > 0 ? (
-                <select
-                  value={businessLocationId}
-                  onChange={(e) => setBusinessLocationId(e.target.value)}
-                  className="input-field text-xs"
-                  required
-                >
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.address}, {loc.city} ({loc.postal_code || loc.postalCode})
-                    </option>
-                  ))}
-                </select>
+              {hasLocations ? (
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                      Workplace Location <span className="text-red-500">*</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingNewLocation(!isAddingNewLocation)}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                      {isAddingNewLocation ? '← Use Saved Location' : '+ Enter Different Postcode'}
+                    </button>
+                  </div>
+
+                  {isAddingNewLocation ? (
+                    <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            Workplace Postcode <span className="text-red-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                              <MapPin className="w-3.5 h-3.5" />
+                            </div>
+                            <input
+                              type="text"
+                              required
+                              value={postcode}
+                              onChange={(e) => setPostcode(e.target.value.toUpperCase())}
+                              placeholder="e.g. M1 1AE or SW1A 1AA"
+                              className="input-field input-with-icon-left text-xs uppercase"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                            Total Staff at Workplace <span className="text-red-500">*</span>
+                          </label>
+                          <select
+                            value={locationHeadcount}
+                            onChange={(e) => setLocationHeadcount(e.target.value)}
+                            className="input-field text-xs"
+                          >
+                            <option value="1-10">1-10 Employees</option>
+                            <option value="11-50">11-50 Employees</option>
+                            <option value="51-100">51-100 Employees</option>
+                            <option value="> 100">&gt; 100 Employees</option>
+                          </select>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                        <span>💡</span>
+                        <span>This workplace location will be automatically created and saved to your dashboard.</span>
+                      </p>
+                    </div>
+                  ) : (
+                    <select
+                      value={businessLocationId}
+                      onChange={(e) => setBusinessLocationId(e.target.value)}
+                      className="input-field text-xs"
+                      required
+                    >
+                      {locations.map((loc) => (
+                        <option key={loc.id} value={loc.id}>
+                          {loc.address}, {loc.city} ({loc.postal_code || loc.postalCode})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               ) : (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
-                  No workplace locations found. Please add a workplace location in your dashboard first.
+                <div className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                      Workplace Location <span className="text-red-500">*</span>
+                    </label>
+                    <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                      Auto-Created
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Workplace Postcode <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                          <MapPin className="w-3.5 h-3.5" />
+                        </div>
+                        <input
+                          type="text"
+                          required
+                          value={postcode}
+                          onChange={(e) => setPostcode(e.target.value.toUpperCase())}
+                          placeholder="e.g. M1 1AE or SW1A 1AA"
+                          className="input-field input-with-icon-left text-xs uppercase"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Total Staff at Workplace <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={locationHeadcount}
+                        onChange={(e) => setLocationHeadcount(e.target.value)}
+                        className="input-field text-xs"
+                      >
+                        <option value="1-10">1-10 Employees</option>
+                        <option value="11-50">11-50 Employees</option>
+                        <option value="51-100">51-100 Employees</option>
+                        <option value="> 100">&gt; 100 Employees</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 flex items-start gap-1.5">
+                    <span>💡</span>
+                    <span>This workplace location will be automatically created and saved to your dashboard. You can edit full address details anytime.</span>
+                  </p>
                 </div>
               )}
             </div>
@@ -468,7 +603,12 @@ const NewReferralModal = ({ isOpen, onClose, onReferralCreated, locations = [], 
               </button>
               <button
                 type="submit"
-                disabled={submitting || locations.length === 0 || selectedServices.length === 0}
+                disabled={
+                  submitting || 
+                  (isEnteringPostcode && !postcode.trim()) || 
+                  (!isEnteringPostcode && !businessLocationId) || 
+                  selectedServices.length === 0
+                }
                 className="btn-primary text-xs px-5 py-2 flex items-center gap-1.5"
               >
                 {submitting ? (
